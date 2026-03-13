@@ -11,6 +11,8 @@ export class PiMomContainer extends Container {
 		AWS_ACCESS_KEY_ID: env.AWS_ACCESS_KEY_ID as string,
 		AWS_SECRET_ACCESS_KEY: env.AWS_SECRET_ACCESS_KEY as string,
 		AWS_REGION: (env.AWS_REGION as string) ?? "us-east-1",
+		BROWSER_USE_API_KEY: (env.BROWSER_USE_API_KEY as string) ?? "",
+		EXA_API_KEY: (env.EXA_API_KEY as string) ?? "",
 	};
 
 	override async onStart() {

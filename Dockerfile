@@ -47,4 +47,5 @@ COPY --from=builder /app .
 
 RUN mkdir -p /data
 
-CMD ["node", "packages/mom/dist/main.js", "--sandbox=host", "/data"]
+RUN chmod +x entrypoint.sh
+CMD ["./entrypoint.sh"]
