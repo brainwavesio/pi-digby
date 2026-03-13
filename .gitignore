@@ -33,3 +33,10 @@ pi-*.html
 out.html
 packages/coding-agent/binaries/
 todo.md
+
+# Bot runtime data
+data/
+
+# Deploy
+deploy/node_modules/
+deploy/.wrangler/

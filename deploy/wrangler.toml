@@ -1,0 +1,27 @@
+name = "pi-digby"
+main = "src/index.ts"
+compatibility_date = "2025-04-03"
+
+[[containers]]
+class_name = "PiMomContainer"
+image = "./container"
+max_instances = 1
+instance_type = "standard-1"
+
+[[durable_objects.bindings]]
+name = "PI_MOM"
+class_name = "PiMomContainer"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["PiMomContainer"]
+
+# Auto-restart check every 5 minutes
+[triggers]
+crons = ["*/5 * * * *"]
+
+[vars]
+AWS_REGION = "us-east-1"
+
+[observability]
+enabled = true

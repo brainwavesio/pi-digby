@@ -24,7 +24,7 @@ import type { ChannelStore } from "./store.js";
 import { createMomTools, setUploadFunction } from "./tools/index.js";
 
 // Hardcoded model for now - TODO: make configurable (issue #63)
-const model = getModel("anthropic", "claude-sonnet-4-5");
+const model = getModel("amazon-bedrock", "us.anthropic.claude-sonnet-4-5-20250929-v1:0");
 
 export interface PendingMessage {
 	userName: string;
@@ -42,16 +42,20 @@ export interface AgentRunner {
 	abort(): void;
 }
 
-async function getAnthropicApiKey(authStorage: AuthStorage): Promise<string> {
-	const key = await authStorage.getApiKey("anthropic");
-	if (!key) {
-		throw new Error(
-			"No API key found for anthropic.\n\n" +
-				"Set an API key environment variable, or use /login with Anthropic and link to auth.json from " +
-				join(homedir(), ".pi", "mom", "auth.json"),
-		);
+async function getBedrockApiKey(): Promise<string> {
+	// Bedrock uses AWS SDK credential chain (env vars, profile, etc.) - no API key needed.
+	// Return sentinel value to satisfy the Agent interface.
+	if (
+		process.env.AWS_PROFILE ||
+		(process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) ||
+		process.env.AWS_BEARER_TOKEN_BEDROCK
+	) {
+		return "<authenticated>";
 	}
-	return key;
+	throw new Error(
+		"No AWS credentials found for Bedrock.\n\n" +
+			"Set AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY, or AWS_PROFILE environment variables.",
+	);
 }
 
 const IMAGE_MIME_TYPES: Record<string, string> = {
@@ -440,7 +444,7 @@ function createRunner(sandboxConfig: SandboxConfig, channelId: string, channelDi
 			tools,
 		},
 		convertToLlm,
-		getApiKey: async () => getAnthropicApiKey(authStorage),
+		getApiKey: async () => getBedrockApiKey(),
 	});
 
 	// Load existing messages
