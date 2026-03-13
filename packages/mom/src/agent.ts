@@ -470,11 +470,19 @@ async function createRunner(sandboxConfig: SandboxConfig, channelId: string, cha
 	const mcpAdapter = (await jiti.import(join(adapterDir, "index.ts"), { default: true })) as (
 		...args: unknown[]
 	) => void;
+	// Use the workspace (data) dir as cwd so the resource loader discovers
+	// AGENTS.md/CLAUDE.md from the persistent volume, not the ephemeral /app.
+	const hostWorkspacePath = channelDir.replace(`/${channelId}`, "");
 	const resourceLoader = new DefaultResourceLoader({
-		cwd: process.cwd(),
+		cwd: hostWorkspacePath,
 		agentDir: getAgentDir(),
 		settingsManager,
 		extensionFactories: [mcpAdapter],
+		// Skills are loaded manually by mom (loadMomSkills) because:
+		// 1. Per-run scanning — catches skills the agent creates at runtime
+		// 2. Channel-specific skills override workspace skills on name collision
+		// 3. Path translation for Docker sandbox mode
+		// The resource loader only scans at reload() time and doesn't know about channels.
 		noSkills: true,
 		noPromptTemplates: true,
 		noThemes: true,
