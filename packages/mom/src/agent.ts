@@ -424,10 +424,12 @@ async function createRunner(sandboxConfig: SandboxConfig, channelId: string, cha
 	// Create tools
 	const tools = createMomTools(executor);
 
-	// Initial system prompt (will be updated each run with fresh memory/channels/users/skills)
+	// System prompt — mutable so the systemPromptOverride closure always returns the
+	// latest version. AgentSession.prompt() resets the agent's prompt to _baseSystemPrompt
+	// on every call; if this were const, the agent would always see the stale initial prompt.
 	const memory = getMemory(channelDir);
 	const skills = loadMomSkills(channelDir, workspacePath);
-	const systemPrompt = buildSystemPrompt(workspacePath, channelId, memory, sandboxConfig, [], [], skills);
+	let systemPrompt = buildSystemPrompt(workspacePath, channelId, memory, sandboxConfig, [], [], skills);
 
 	// Create session manager and settings manager
 	// Use a fixed context.jsonl file per channel (not timestamped like coding-agent)
@@ -681,10 +683,14 @@ async function createRunner(sandboxConfig: SandboxConfig, channelId: string, cha
 				log.logInfo(`[${channelId}] Reloaded ${reloadedSession.messages.length} messages from context`);
 			}
 
-			// Update system prompt with fresh memory, channel/user info, and skills
+			// Update system prompt with fresh memory, channel/user info, and skills.
+			// Updates the outer `let systemPrompt` so the resource loader's systemPromptOverride
+			// closure returns the fresh value. Then flush the resource loader cache and trigger
+			// AgentSession._baseSystemPrompt rebuild, since prompt() resets to _baseSystemPrompt
+			// on every call (via the before_agent_start extension event path).
 			const memory = getMemory(channelDir);
 			const skills = loadMomSkills(channelDir, workspacePath);
-			const systemPrompt = buildSystemPrompt(
+			systemPrompt = buildSystemPrompt(
 				workspacePath,
 				channelId,
 				memory,
@@ -693,7 +699,9 @@ async function createRunner(sandboxConfig: SandboxConfig, channelId: string, cha
 				ctx.users,
 				skills,
 			);
-			session.agent.setSystemPrompt(systemPrompt);
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any -- no public API to update cached prompt
+			(resourceLoader as any).systemPrompt = systemPrompt;
+			session.setActiveToolsByName(session.getActiveToolNames());
 
 			// Set up file upload function
 			setUploadFunction(async (filePath: string, title?: string) => {
