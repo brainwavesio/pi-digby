@@ -37,7 +37,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-pip python3-venv \
     libcairo2 libpango-1.0-0 libpangocairo-1.0-0 \
     libjpeg62-turbo libgif7 librsvg2-2 libpixman-1-0 \
-    unzip zip less vim nano htop procps \
+    unzip zip less vim nano htop procps tmux \
     gh \
   && rm -rf /var/lib/apt/lists/*
 
