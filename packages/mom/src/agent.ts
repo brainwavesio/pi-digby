@@ -458,10 +458,14 @@ async function createRunner(sandboxConfig: SandboxConfig, channelId: string, cha
 		log.logInfo(`[${channelId}] Loaded ${loadedSession.messages.length} messages from context.jsonl`);
 	}
 
+	// Dynamic import with non-literal to prevent tsgo from type-checking the .ts source files
+	const mcpAdapterPkg = "pi-mcp-adapter";
+	const { default: mcpAdapter } = await import(mcpAdapterPkg);
 	const resourceLoader = new DefaultResourceLoader({
 		cwd: process.cwd(),
 		agentDir: getAgentDir(),
 		settingsManager,
+		extensionFactories: [mcpAdapter],
 		noSkills: true,
 		noPromptTemplates: true,
 		noThemes: true,
