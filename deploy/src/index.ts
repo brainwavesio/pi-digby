@@ -50,9 +50,14 @@ export default {
 		const url = new URL(request.url);
 		const bot = getContainer(env.PI_MOM, "singleton");
 
+		// Ensure the bot is running on every request (covers fresh deploys)
+		const state = await bot.getState();
+		if (state.status !== "running" && state.status !== "healthy" && url.pathname !== "/stop") {
+			await bot.start();
+		}
+
 		switch (url.pathname) {
 			case "/start":
-				await bot.start();
 				return new Response(null, { status: 302, headers: { Location: "/status" } });
 			case "/stop":
 				await bot.stop();
