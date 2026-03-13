@@ -13,10 +13,11 @@ export class PiMomContainer extends Container {
 		AWS_REGION: (env.AWS_REGION as string) ?? "us-east-1",
 		BROWSER_USE_API_KEY: (env.BROWSER_USE_API_KEY as string) ?? "",
 		EXA_API_KEY: (env.EXA_API_KEY as string) ?? "",
+		GH_TOKEN: (env.GH_TOKEN as string) ?? "",
 	};
 
 	override async onStart() {
-		console.log("pi-mom started");
+		console.log("pi-digby started");
 		// Schedule a recurring alarm to keep the Durable Object awake.
 		// Without this, the DO hibernates when idle and kills the container.
 		await this.schedule(5 * 60, "keepAlive");
@@ -32,11 +33,11 @@ export class PiMomContainer extends Container {
 	}
 
 	override onStop() {
-		console.log("pi-mom stopped");
+		console.log("pi-digby stopped");
 	}
 
 	override onError(error: unknown) {
-		console.error("pi-mom error:", error);
+		console.error("pi-digby error:", error);
 	}
 }
 
