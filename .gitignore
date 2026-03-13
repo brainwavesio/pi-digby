@@ -40,3 +40,5 @@ data/
 # Deploy
 deploy/node_modules/
 deploy/.wrangler/
+deploy/.dev.vars
+.claude/worktrees/
