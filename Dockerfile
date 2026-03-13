@@ -33,14 +33,22 @@ RUN npm run build
 FROM node:22-bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git jq curl ca-certificates \
+    git jq curl wget ca-certificates \
+    python3 python3-pip python3-venv \
     libcairo2 libpango-1.0-0 libpangocairo-1.0-0 \
     libjpeg62-turbo libgif7 librsvg2-2 libpixman-1-0 \
+    unzip zip less vim nano htop procps \
+    gh \
   && rm -rf /var/lib/apt/lists/*
 
-# ripgrep (used by coding agent for file search)
+# ripgrep
 RUN curl -fsSL "https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep-14.1.1-x86_64-unknown-linux-musl.tar.gz" \
   | tar xz --strip-components=1 -C /usr/local/bin "ripgrep-14.1.1-x86_64-unknown-linux-musl/rg"
+
+# cloudflared (for tunneling artifact servers to the web)
+RUN curl -fsSL -o /usr/local/bin/cloudflared \
+    "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64" \
+  && chmod +x /usr/local/bin/cloudflared
 
 WORKDIR /app
 COPY --from=builder /app .
