@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { join, resolve } from "path";
-import { type AgentRunner, getOrCreateRunner } from "./agent.js";
+import { type AgentRunner, getOrCreateRunner, shutdownAllRunners } from "./agent.js";
 import { downloadChannel } from "./download.js";
 import { createEventsWatcher } from "./events.js";
 import * as log from "./log.js";
@@ -351,17 +351,21 @@ const bot = new SlackBotClass(handler, {
 const eventsWatcher = createEventsWatcher(workingDir, bot);
 eventsWatcher.start();
 
-// Handle shutdown
+// Handle shutdown — emit session_shutdown so extensions (MCP adapter) close connections
 process.on("SIGINT", () => {
 	log.logInfo("Shutting down...");
 	eventsWatcher.stop();
-	process.exit(0);
+	shutdownAllRunners()
+		.catch((err) => log.logWarning("Shutdown error", String(err)))
+		.finally(() => process.exit(0));
 });
 
 process.on("SIGTERM", () => {
 	log.logInfo("Shutting down...");
 	eventsWatcher.stop();
-	process.exit(0);
+	shutdownAllRunners()
+		.catch((err) => log.logWarning("Shutdown error", String(err)))
+		.finally(() => process.exit(0));
 });
 
 bot.start();

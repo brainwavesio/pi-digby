@@ -41,6 +41,7 @@ export interface AgentRunner {
 		pendingMessages?: PendingMessage[],
 	): Promise<{ stopReason: string; errorMessage?: string }>;
 	abort(): void;
+	shutdown(): Promise<void>;
 }
 
 async function getBedrockApiKey(): Promise<string> {
@@ -901,6 +902,15 @@ async function createRunner(sandboxConfig: SandboxConfig, channelId: string, cha
 		abort(): void {
 			session.abort();
 		},
+
+		async shutdown(): Promise<void> {
+			// Emit session_shutdown so extensions (MCP adapter) can close server connections
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any -- no public API for extension shutdown
+			const runner = (session as any)._extensionRunner;
+			if (runner) {
+				await runner.emit({ type: "session_shutdown" });
+			}
+		},
 	};
 }
 
@@ -923,4 +933,13 @@ function translateToHostPath(
 		}
 	}
 	return containerPath;
+}
+
+/**
+ * Shut down all cached channel runners.
+ * Emits session_shutdown to extensions so MCP servers can close connections.
+ */
+export async function shutdownAllRunners(): Promise<void> {
+	const runners = Array.from(channelRunners.values());
+	await Promise.allSettled(runners.map((r) => r.shutdown()));
 }
