@@ -8,9 +8,27 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+
+# Copy package manifests first so npm ci is cached independently of source changes
+COPY package.json package-lock.json ./
+COPY packages/agent/package.json packages/agent/
+COPY packages/ai/package.json packages/ai/
+COPY packages/coding-agent/package.json packages/coding-agent/
+COPY packages/coding-agent/examples/extensions/custom-provider-anthropic/package.json packages/coding-agent/examples/extensions/custom-provider-anthropic/
+COPY packages/coding-agent/examples/extensions/custom-provider-gitlab-duo/package.json packages/coding-agent/examples/extensions/custom-provider-gitlab-duo/
+COPY packages/coding-agent/examples/extensions/custom-provider-qwen-cli/package.json packages/coding-agent/examples/extensions/custom-provider-qwen-cli/
+COPY packages/coding-agent/examples/extensions/sandbox/package.json packages/coding-agent/examples/extensions/sandbox/
+COPY packages/coding-agent/examples/extensions/with-deps/package.json packages/coding-agent/examples/extensions/with-deps/
+COPY packages/mom/package.json packages/mom/
+COPY packages/pods/package.json packages/pods/
+COPY packages/tui/package.json packages/tui/
+COPY packages/web-ui/package.json packages/web-ui/
+COPY packages/web-ui/example/package.json packages/web-ui/example/
+RUN npm ci
+
+# Now copy source and build
 COPY . .
-RUN npm ci \
-  && npm run build
+RUN npm run build
 
 FROM node:22-bookworm-slim
 

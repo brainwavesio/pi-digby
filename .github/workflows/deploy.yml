@@ -15,10 +15,29 @@ jobs:
         with:
           node-version: 22
 
+      - name: Cache deploy dependencies
+        uses: actions/cache@v4
+        with:
+          path: deploy/node_modules
+          key: deploy-node-modules-${{ hashFiles('deploy/package.json') }}
+
       - run: npm install
         working-directory: deploy
 
-      - run: npx wrangler deploy
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Prime Docker layer cache
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Deploy to Cloudflare
+        run: npx wrangler deploy
         working-directory: deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
