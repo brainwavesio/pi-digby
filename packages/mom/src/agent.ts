@@ -458,9 +458,10 @@ async function createRunner(sandboxConfig: SandboxConfig, channelId: string, cha
 		log.logInfo(`[${channelId}] Loaded ${loadedSession.messages.length} messages from context.jsonl`);
 	}
 
-	// Dynamic import with non-literal to prevent tsgo from type-checking the .ts source files
-	const mcpAdapterPkg = "pi-mcp-adapter";
-	const { default: mcpAdapter } = await import(mcpAdapterPkg);
+	// Use jiti to load pi-mcp-adapter (ships .ts, not compiled .js)
+	const { createJiti } = await import("@mariozechner/jiti");
+	const jiti = createJiti(import.meta.url);
+	const mcpAdapter = (await jiti.import("pi-mcp-adapter", { default: true })) as (...args: unknown[]) => void;
 	const resourceLoader = new DefaultResourceLoader({
 		cwd: process.cwd(),
 		agentDir: getAgentDir(),
