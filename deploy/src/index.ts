@@ -14,13 +14,20 @@ export class PiMomContainer extends Container {
 		AWS_PROFILE: "default",
 	};
 
-	override async onActivityExpired() {
-		// Keep the container alive instead of letting it sleep
-		await this.renewActivityTimeout();
+	override async onStart() {
+		console.log("pi-mom started");
+		// Schedule a recurring alarm to keep the Durable Object awake.
+		// Without this, the DO hibernates when idle and kills the container.
+		await this.schedule(5 * 60, "keepAlive");
 	}
 
-	override onStart() {
-		console.log("pi-mom started");
+	async keepAlive() {
+		await this.renewActivityTimeout();
+		await this.schedule(5 * 60, "keepAlive");
+	}
+
+	override async onActivityExpired() {
+		await this.renewActivityTimeout();
 	}
 
 	override onStop() {
