@@ -12,7 +12,7 @@ import {
 	SessionManager,
 	type Skill,
 } from "@mariozechner/pi-coding-agent";
-import { existsSync, readFileSync } from "fs";
+import { existsSync, readFileSync, statSync } from "fs";
 import { mkdir, writeFile } from "fs/promises";
 import { createRequire } from "module";
 import { homedir } from "os";
@@ -334,6 +334,14 @@ Each tool requires a "label" parameter (shown to user).
 `;
 }
 
+function getMtime(path: string): number {
+	try {
+		return statSync(path).mtimeMs;
+	} catch {
+		return 0;
+	}
+}
+
 function truncate(text: string, maxLen: number): string {
 	if (text.length <= maxLen) return text;
 	return `${text.substring(0, maxLen - 3)}...`;
@@ -490,6 +498,12 @@ async function createRunner(sandboxConfig: SandboxConfig, channelId: string, cha
 	});
 	await resourceLoader.reload();
 
+	// Track MCP config mtime to detect changes between runs.
+	// When the agent edits mcp.json (e.g. adding OAuth tokens), we need to reload
+	// extensions so the MCP adapter reconnects with the new config.
+	const mcpConfigPath = join(hostWorkspacePath, ".pi", "mcp.json");
+	let mcpConfigMtime = getMtime(mcpConfigPath);
+
 	const baseToolsOverride = Object.fromEntries(tools.map((tool) => [tool.name, tool]));
 
 	// Create AgentSession wrapper
@@ -497,7 +511,7 @@ async function createRunner(sandboxConfig: SandboxConfig, channelId: string, cha
 		agent,
 		sessionManager,
 		settingsManager,
-		cwd: process.cwd(),
+		cwd: hostWorkspacePath,
 		modelRegistry,
 		resourceLoader,
 		baseToolsOverride,
@@ -709,9 +723,7 @@ async function createRunner(sandboxConfig: SandboxConfig, channelId: string, cha
 
 			// Update system prompt with fresh memory, channel/user info, and skills.
 			// Updates the outer `let systemPrompt` so the resource loader's systemPromptOverride
-			// closure returns the fresh value. Then flush the resource loader cache and trigger
-			// AgentSession._baseSystemPrompt rebuild, since prompt() resets to _baseSystemPrompt
-			// on every call (via the before_agent_start extension event path).
+			// closure returns the fresh value.
 			const memory = getMemory(channelDir);
 			const skills = loadMomSkills(channelDir, workspacePath);
 			systemPrompt = buildSystemPrompt(
@@ -723,9 +735,22 @@ async function createRunner(sandboxConfig: SandboxConfig, channelId: string, cha
 				ctx.users,
 				skills,
 			);
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any -- no public API to update cached prompt
-			(resourceLoader as any).systemPrompt = systemPrompt;
-			session.setActiveToolsByName(session.getActiveToolNames());
+
+			// If MCP config changed (e.g. agent added OAuth tokens), reload extensions
+			// so the adapter reconnects with the new config. reload() also re-evaluates
+			// systemPromptOverride and rebuilds _baseSystemPrompt.
+			// Otherwise just flush the resource loader cache and trigger a prompt rebuild.
+			const currentMcpMtime = getMtime(mcpConfigPath);
+			if (currentMcpMtime !== mcpConfigMtime) {
+				mcpConfigMtime = currentMcpMtime;
+				log.logInfo(`[${channelId}] MCP config changed, reloading extensions`);
+				await session.reload();
+				await session.bindExtensions({});
+			} else {
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any -- no public API to update cached prompt
+				(resourceLoader as any).systemPrompt = systemPrompt;
+				session.setActiveToolsByName(session.getActiveToolNames());
+			}
 
 			// Set up file upload function
 			setUploadFunction(async (filePath: string, title?: string) => {
