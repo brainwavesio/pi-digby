@@ -12,10 +12,9 @@ RUN curl -fsSL "https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/r
   | tar xz --strip-components=1 -C /usr/local/bin "ripgrep-14.1.1-x86_64-unknown-linux-musl/rg"
 
 WORKDIR /app
-RUN git clone --depth 1 https://github.com/brainwavesio/pi-digby.git . \
-  && npm ci \
-  && npm run build \
-  && rm -rf .git
+COPY . .
+RUN npm ci \
+  && npm run build
 
 RUN mkdir -p /data
 
