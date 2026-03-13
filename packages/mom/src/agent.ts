@@ -25,7 +25,7 @@ import type { ChannelStore } from "./store.js";
 import { createMomTools, setUploadFunction } from "./tools/index.js";
 
 // Hardcoded model for now - TODO: make configurable (issue #63)
-const model = getModel("amazon-bedrock", "us.anthropic.claude-sonnet-4-5-20250929-v1:0");
+const model = getModel("amazon-bedrock", "us.anthropic.claude-sonnet-4-6");
 
 export interface PendingMessage {
 	userName: string;
