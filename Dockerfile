@@ -50,6 +50,16 @@ RUN curl -fsSL -o /usr/local/bin/cloudflared \
     "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64" \
   && chmod +x /usr/local/bin/cloudflared
 
+# uv (fast Python package manager)
+RUN curl -fsSL https://astral.sh/uv/install.sh | sh \
+  && ln -s /root/.local/bin/uv /usr/local/bin/uv \
+  && ln -s /root/.local/bin/uvx /usr/local/bin/uvx
+
+# bun (fast JS/TS runtime)
+RUN curl -fsSL https://bun.sh/install | bash \
+  && ln -s /root/.bun/bin/bun /usr/local/bin/bun \
+  && ln -s /root/.bun/bin/bunx /usr/local/bin/bunx
+
 WORKDIR /app
 COPY --from=builder /app .
 
