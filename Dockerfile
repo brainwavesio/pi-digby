@@ -60,6 +60,9 @@ RUN curl -fsSL https://bun.sh/install | bash \
   && ln -s /root/.bun/bin/bun /usr/local/bin/bun \
   && ln -s /root/.bun/bin/bunx /usr/local/bin/bunx
 
+# browser-use CLI (cloud mode — uses BROWSER_USE_API_KEY env var)
+RUN uv pip install --system browser-use
+
 # qmd (semantic search over markdown files)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential cmake python3-dev \

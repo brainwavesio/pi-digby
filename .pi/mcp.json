@@ -6,12 +6,6 @@
 		"linear": {
 			"url": "https://mcp.linear.app/mcp"
 		},
-		"browser-use": {
-			"url": "https://api.browser-use.com/mcp",
-			"headers": {
-				"x-api-key": "${BROWSER_USE_API_KEY}"
-			}
-		},
 		"exa": {
 			"url": "https://mcp.exa.ai/mcp?exaApiKey=EXA_API_KEY_PLACEHOLDER"
 		}

@@ -57,7 +57,7 @@ Control panel: `https://pi-digby.<account>.workers.dev/` (start, stop, restart, 
 | `MOM_SLACK_BOT_TOKEN` | Slack bot OAuth token |
 | `AWS_ACCESS_KEY_ID` | Bedrock credentials |
 | `AWS_SECRET_ACCESS_KEY` | Bedrock credentials |
-| `BROWSER_USE_API_KEY` | browser-use MCP server |
+| `BROWSER_USE_API_KEY` | browser-use CLI (cloud mode) |
 | `EXA_API_KEY` | Exa search MCP server |
 
 ## MCP setup
