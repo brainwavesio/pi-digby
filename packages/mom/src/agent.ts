@@ -155,6 +155,7 @@ function buildSystemPrompt(
 ): string {
 	const channelPath = `${workspacePath}/${channelId}`;
 	const isDocker = sandboxConfig.type === "docker";
+	const timezone = process.env.TZ || "Australia/Melbourne";
 
 	// Format channel mappings
 	const channelMappings =
@@ -246,7 +247,7 @@ You can schedule events that wake you up at specific times or when external thin
 
 **Periodic** - Triggers on a cron schedule. Use for recurring tasks.
 \`\`\`json
-{"type": "periodic", "channelId": "${channelId}", "text": "Check inbox and summarize", "schedule": "0 9 * * 1-5", "timezone": "${Intl.DateTimeFormat().resolvedOptions().timeZone}"}
+{"type": "periodic", "channelId": "${channelId}", "text": "Check inbox and summarize", "schedule": "0 9 * * 1-5", "timezone": "${timezone}"}
 \`\`\`
 
 ### Cron Format
@@ -257,7 +258,7 @@ You can schedule events that wake you up at specific times or when external thin
 - \`0 0 1 * *\` = first of each month at midnight
 
 ### Timezones
-All \`at\` timestamps must include offset (e.g., \`+10:00\`). Periodic events use IANA timezone names. The harness runs in ${Intl.DateTimeFormat().resolvedOptions().timeZone}. When users mention times without timezone, assume ${Intl.DateTimeFormat().resolvedOptions().timeZone}.
+All \`at\` timestamps must include offset (e.g., \`+10:00\`). Periodic events use IANA timezone names. The harness runs in ${timezone}. When users mention times without timezone, assume ${timezone}.
 
 ### Creating Events
 Use unique filenames to avoid overwriting existing events. Include a timestamp or random suffix:
