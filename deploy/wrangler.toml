@@ -4,7 +4,7 @@ compatibility_date = "2025-04-03"
 
 [[containers]]
 class_name = "PiMomContainer"
-image = "./container"
+image = "./container/Dockerfile"
 max_instances = 1
 instance_type = "standard-1"
 
