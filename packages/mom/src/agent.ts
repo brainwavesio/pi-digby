@@ -629,6 +629,12 @@ async function createRunner(sandboxConfig: SandboxConfig, channelId: string, cha
 			const compEvent = event as any;
 			if (compEvent.result) {
 				log.logInfo(`Auto-compaction complete: ${compEvent.result.tokensBefore} tokens compacted`);
+			} else if (compEvent.errorMessage) {
+				log.logWarning("Auto-compaction failed", compEvent.errorMessage);
+				queue.enqueue(
+					() => ctx.respond(`_Compaction error: ${truncate(compEvent.errorMessage, 200)}_`, false),
+					"compaction error",
+				);
 			} else if (compEvent.aborted) {
 				log.logInfo("Auto-compaction aborted");
 			}
@@ -639,6 +645,15 @@ async function createRunner(sandboxConfig: SandboxConfig, channelId: string, cha
 				() => ctx.respond(`_Retrying (${retryEvent.attempt}/${retryEvent.maxAttempts})..._`, false),
 				"retry",
 			);
+		} else if (event.type === "auto_retry_end") {
+			const retryEvent = event as any;
+			if (!retryEvent.success) {
+				log.logWarning(`Retries exhausted (${retryEvent.attempt} attempts)`, retryEvent.finalError || "");
+				queue.enqueue(
+					() => ctx.respond(`_Retries exhausted after ${retryEvent.attempt} attempts_`, false),
+					"retry end",
+				);
+			}
 		}
 	});
 
