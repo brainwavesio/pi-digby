@@ -37,11 +37,16 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Deploy to Cloudflare
-        run: npx wrangler deploy
+        id: deploy
+        run: |
+          OUTPUT=$(npx wrangler deploy 2>&1)
+          echo "$OUTPUT"
+          URL=$(echo "$OUTPUT" | grep -oP 'https://[^\s]+\.workers\.dev' | head -1)
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
         working-directory: deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Restart container
-        run: curl -sf "${{ secrets.PI_DIGBY_URL }}/restart" -o /dev/null || echo "Restart ping failed (container will start on next cron)"
+        run: curl -sf "${{ steps.deploy.outputs.url }}/restart" -o /dev/null || echo "Restart ping failed (container will start on next cron)"
