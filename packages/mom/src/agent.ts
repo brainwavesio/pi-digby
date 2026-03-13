@@ -345,14 +345,14 @@ grep '"userName":"mario"' log.jsonl | tail -20 | jq -c '{date: .date[0:19], text
 \`\`\`
 
 ## Browser (browser-use CLI)
-Use \`browser-use\` for web browsing tasks. It runs against the cloud service (no local browser needed).
+Use \`uvx browser-use\` for web browsing tasks. It runs against the cloud service (no local browser needed).
 \`\`\`bash
-browser-use open https://example.com   # Navigate to URL
-browser-use state                       # See clickable elements
-browser-use click 5                     # Click element by index
-browser-use type "search query"         # Type text
-browser-use screenshot page.png         # Take screenshot
-browser-use close                       # Close browser
+uvx browser-use open https://example.com   # Navigate to URL
+uvx browser-use state                       # See clickable elements
+uvx browser-use click 5                     # Click element by index
+uvx browser-use type "search query"         # Type text
+uvx browser-use screenshot page.png         # Take screenshot
+uvx browser-use close                       # Close browser
 \`\`\`
 Sessions persist between commands for multi-step browsing.
 
