@@ -44,20 +44,31 @@ export default {
 		switch (url.pathname) {
 			case "/start":
 				await bot.start();
-				return new Response("Started");
+				return new Response(null, { status: 302, headers: { Location: "/status" } });
 			case "/stop":
 				await bot.stop();
-				return new Response("Stopped");
+				return new Response(null, { status: 302, headers: { Location: "/status" } });
 			case "/restart":
 				await bot.destroy();
 				await bot.start();
-				return new Response("Restarted");
+				return new Response(null, { status: 302, headers: { Location: "/status" } });
 			case "/status": {
 				const state = await bot.getState();
 				return Response.json(state);
 			}
 			default:
-				return new Response("pi-digby\n\nGET /start /stop /restart /status");
+				return new Response(
+					`<!doctype html><html><body>
+<h2>pi-digby</h2>
+<ul>
+<li><a href="/start">/start</a></li>
+<li><a href="/stop">/stop</a></li>
+<li><a href="/restart">/restart</a></li>
+<li><a href="/status">/status</a></li>
+</ul>
+</body></html>`,
+					{ headers: { "content-type": "text/html" } },
+				);
 		}
 	},
 
