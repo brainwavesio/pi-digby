@@ -4,11 +4,11 @@ import {
 	AgentSession,
 	AuthStorage,
 	convertToLlm,
-	createExtensionRuntime,
+	DefaultResourceLoader,
 	formatSkillsForPrompt,
+	getAgentDir,
 	loadSkillsFromDir,
 	ModelRegistry,
-	type ResourceLoader,
 	SessionManager,
 	type Skill,
 } from "@mariozechner/pi-coding-agent";
@@ -399,11 +399,15 @@ const channelRunners = new Map<string, AgentRunner>();
  * Get or create an AgentRunner for a channel.
  * Runners are cached - one per channel, persistent across messages.
  */
-export function getOrCreateRunner(sandboxConfig: SandboxConfig, channelId: string, channelDir: string): AgentRunner {
+export async function getOrCreateRunner(
+	sandboxConfig: SandboxConfig,
+	channelId: string,
+	channelDir: string,
+): Promise<AgentRunner> {
 	const existing = channelRunners.get(channelId);
 	if (existing) return existing;
 
-	const runner = createRunner(sandboxConfig, channelId, channelDir);
+	const runner = await createRunner(sandboxConfig, channelId, channelDir);
 	channelRunners.set(channelId, runner);
 	return runner;
 }
@@ -412,7 +416,7 @@ export function getOrCreateRunner(sandboxConfig: SandboxConfig, channelId: strin
  * Create a new AgentRunner for a channel.
  * Sets up the session and subscribes to events once.
  */
-function createRunner(sandboxConfig: SandboxConfig, channelId: string, channelDir: string): AgentRunner {
+async function createRunner(sandboxConfig: SandboxConfig, channelId: string, channelDir: string): Promise<AgentRunner> {
 	const executor = createExecutor(sandboxConfig);
 	const workspacePath = executor.getWorkspacePath(channelDir.replace(`/${channelId}`, ""));
 
@@ -454,18 +458,16 @@ function createRunner(sandboxConfig: SandboxConfig, channelId: string, channelDi
 		log.logInfo(`[${channelId}] Loaded ${loadedSession.messages.length} messages from context.jsonl`);
 	}
 
-	const resourceLoader: ResourceLoader = {
-		getExtensions: () => ({ extensions: [], errors: [], runtime: createExtensionRuntime() }),
-		getSkills: () => ({ skills: [], diagnostics: [] }),
-		getPrompts: () => ({ prompts: [], diagnostics: [] }),
-		getThemes: () => ({ themes: [], diagnostics: [] }),
-		getAgentsFiles: () => ({ agentsFiles: [] }),
-		getSystemPrompt: () => systemPrompt,
-		getAppendSystemPrompt: () => [],
-		getPathMetadata: () => new Map(),
-		extendResources: () => {},
-		reload: async () => {},
-	};
+	const resourceLoader = new DefaultResourceLoader({
+		cwd: process.cwd(),
+		agentDir: getAgentDir(),
+		settingsManager,
+		noSkills: true,
+		noPromptTemplates: true,
+		noThemes: true,
+		systemPromptOverride: () => systemPrompt,
+	});
+	await resourceLoader.reload();
 
 	const baseToolsOverride = Object.fromEntries(tools.map((tool) => [tool.name, tool]));
 
