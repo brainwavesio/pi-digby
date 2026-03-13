@@ -14,8 +14,9 @@ import {
 } from "@mariozechner/pi-coding-agent";
 import { existsSync, readFileSync } from "fs";
 import { mkdir, writeFile } from "fs/promises";
+import { createRequire } from "module";
 import { homedir } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
 import { createMomSettingsManager, syncLogToSessionManager } from "./context.js";
 import * as log from "./log.js";
 import { createExecutor, type SandboxConfig } from "./sandbox.js";
@@ -458,10 +459,14 @@ async function createRunner(sandboxConfig: SandboxConfig, channelId: string, cha
 		log.logInfo(`[${channelId}] Loaded ${loadedSession.messages.length} messages from context.jsonl`);
 	}
 
-	// Use jiti to load pi-mcp-adapter (ships .ts, not compiled .js)
+	// Use jiti to load pi-mcp-adapter (.ts source, no compiled .js)
+	const require = createRequire(import.meta.url);
+	const adapterDir = dirname(require.resolve("pi-mcp-adapter/package.json"));
 	const { createJiti } = await import("@mariozechner/jiti");
 	const jiti = createJiti(import.meta.url);
-	const mcpAdapter = (await jiti.import("pi-mcp-adapter", { default: true })) as (...args: unknown[]) => void;
+	const mcpAdapter = (await jiti.import(join(adapterDir, "index.ts"), { default: true })) as (
+		...args: unknown[]
+	) => void;
 	const resourceLoader = new DefaultResourceLoader({
 		cwd: process.cwd(),
 		agentDir: getAgentDir(),
