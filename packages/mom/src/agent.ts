@@ -290,11 +290,31 @@ When writing programs that create immediate events (email watchers, webhook hand
 ### Limits
 Maximum 5 events can be queued. Don't create excessive immediate or periodic events.
 
-## Memory
+## Memory & Search
+
+### Writing Memory
 Write to MEMORY.md files to persist context across conversations.
 - Global (${workspacePath}/MEMORY.md): skills, preferences, project info
 - Channel (${channelPath}/MEMORY.md): channel-specific decisions, ongoing work
 Update when you learn something important or when asked to remember something.
+
+Also write markdown notes periodically, or when you learn something important to the user or the work:
+- Global notes: ${workspacePath}/memory/YYYY-MM-DD.md (cross-channel knowledge)
+- Channel notes: ${channelPath}/memory/YYYY-MM-DD.md (channel-specific context)
+These are indexed by QMD for semantic search. Write useful summaries of decisions, outcomes, and context. After writing memory files, re-index: \`QMD_CACHE_DIR=/data/.cache/qmd qmd --config /data/qmd.yml embed\`
+
+### Searching
+Semantic search across all memory and history:
+\`\`\`bash
+QMD_CACHE_DIR=/data/.cache/qmd qmd --config /data/qmd.yml query "what was the deployment strategy we discussed"
+\`\`\`
+
+Search a specific collection:
+\`\`\`bash
+QMD_CACHE_DIR=/data/.cache/qmd qmd --config /data/qmd.yml query "deployment" --collection channels
+\`\`\`
+
+For simple recent keyword lookups in current channel, use grep on log.jsonl (see Log Queries below).
 
 ### Current Memory
 ${memory}

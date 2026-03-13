@@ -12,4 +12,13 @@ fi
 
 ln -sf /data/.pi/mcp.json /app/.pi/mcp.json
 
+# QMD setup: seed config and prepare directories
+if [ ! -f /data/qmd.yml ]; then
+  cp /app/qmd.yml /data/qmd.yml
+fi
+mkdir -p /data/.cache/qmd /data/memory
+
+# Background: download models and build initial index
+QMD_CACHE_DIR=/data/.cache/qmd qmd --config /data/qmd.yml embed &
+
 exec node packages/mom/dist/main.js --sandbox=host /data

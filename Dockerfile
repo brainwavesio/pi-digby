@@ -60,6 +60,14 @@ RUN curl -fsSL https://bun.sh/install | bash \
   && ln -s /root/.bun/bin/bun /usr/local/bin/bun \
   && ln -s /root/.bun/bin/bunx /usr/local/bin/bunx
 
+# qmd (semantic search over markdown files)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential cmake python3-dev \
+  && npm install -g @tobilu/qmd \
+  && apt-get purge -y build-essential cmake python3-dev \
+  && apt-get autoremove -y \
+  && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 COPY --from=builder /app .
 
