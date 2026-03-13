@@ -170,10 +170,10 @@ function buildSystemPrompt(
 - Install tools with: apk add <package>
 - Your changes persist across sessions`
 		: `You are running directly on the host machine.
-- Bash working directory: ${process.cwd()}
+- Bash working directory: ${process.cwd()} (changes will be lost on container restart)
 - Be careful with system modifications`;
 
-	return `You are mom, a Slack bot assistant. Be concise. No emojis.
+	return `You are digby, a Slack bot assistant. Be concise. No emojis.
 
 ## Context
 - For current date/time, use: date
@@ -241,7 +241,7 @@ You can schedule events that wake you up at specific times or when external thin
 
 **One-shot** - Triggers once at a specific time. Use for reminders.
 \`\`\`json
-{"type": "one-shot", "channelId": "${channelId}", "text": "Remind Mario about dentist", "at": "2025-12-15T09:00:00+01:00"}
+{"type": "one-shot", "channelId": "${channelId}", "text": "Remind Mario about dentist", "at": "2025-12-15T09:00:00+10:00"}
 \`\`\`
 
 **Periodic** - Triggers on a cron schedule. Use for recurring tasks.
@@ -257,13 +257,13 @@ You can schedule events that wake you up at specific times or when external thin
 - \`0 0 1 * *\` = first of each month at midnight
 
 ### Timezones
-All \`at\` timestamps must include offset (e.g., \`+01:00\`). Periodic events use IANA timezone names. The harness runs in ${Intl.DateTimeFormat().resolvedOptions().timeZone}. When users mention times without timezone, assume ${Intl.DateTimeFormat().resolvedOptions().timeZone}.
+All \`at\` timestamps must include offset (e.g., \`+10:00\`). Periodic events use IANA timezone names. The harness runs in ${Intl.DateTimeFormat().resolvedOptions().timeZone}. When users mention times without timezone, assume ${Intl.DateTimeFormat().resolvedOptions().timeZone}.
 
 ### Creating Events
 Use unique filenames to avoid overwriting existing events. Include a timestamp or random suffix:
 \`\`\`bash
 cat > ${workspacePath}/events/dentist-reminder-$(date +%s).json << 'EOF'
-{"type": "one-shot", "channelId": "${channelId}", "text": "Dentist tomorrow", "at": "2025-12-14T09:00:00+01:00"}
+{"type": "one-shot", "channelId": "${channelId}", "text": "Dentist tomorrow", "at": "2025-12-14T09:00:00+10:00"}
 EOF
 \`\`\`
 Or check if file exists first before creating.
@@ -276,7 +276,7 @@ Or check if file exists first before creating.
 ### When Events Trigger
 You receive a message like:
 \`\`\`
-[EVENT:dentist-reminder.json:one-shot:2025-12-14T09:00:00+01:00] Dentist tomorrow
+[EVENT:dentist-reminder.json:one-shot:2025-12-14T09:00:00+10:00] Dentist tomorrow
 \`\`\`
 Immediate and one-shot events auto-delete after triggering. Periodic events persist until you delete them.
 
