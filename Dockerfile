@@ -61,7 +61,7 @@ RUN curl -fsSL https://bun.sh/install | bash \
   && ln -s /root/.bun/bin/bunx /usr/local/bin/bunx
 
 # browser-use CLI (cloud mode — uses BROWSER_USE_API_KEY env var)
-RUN uv pip install --system browser-use
+RUN uv pip install --system --break-system-packages browser-use
 
 # qmd (semantic search over markdown files)
 RUN apt-get update && apt-get install -y --no-install-recommends \
