@@ -492,6 +492,9 @@ async function createRunner(sandboxConfig: SandboxConfig, channelId: string, cha
 		baseToolsOverride,
 	});
 
+	// Trigger session_start so extensions (e.g. pi-mcp-adapter) initialize
+	await session.bindExtensions({});
+
 	// Mutable per-run state - event handler references this
 	const runState = {
 		ctx: null as SlackContext | null,
