@@ -47,6 +47,7 @@ export class PiMomContainer extends Container {
 
 interface Env {
 	PI_MOM: DurableObjectNamespace;
+	DEPLOY_SHA?: string;
 }
 
 export default {
@@ -72,7 +73,7 @@ export default {
 				return new Response(null, { status: 302, headers: { Location: "/status" } });
 			case "/status": {
 				const state = await bot.getState();
-				return Response.json(state);
+				return Response.json({ ...state, deploySha: env.DEPLOY_SHA ?? "" });
 			}
 			default:
 				return new Response(

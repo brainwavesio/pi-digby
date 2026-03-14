@@ -39,7 +39,10 @@ jobs:
       - name: Deploy to Cloudflare
         id: deploy
         run: |
-          OUTPUT=$(npx wrangler deploy 2>&1)
+          SHA="${{ github.sha }}"
+          SHORT_SHA="${SHA:0:7}"
+          echo "sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          OUTPUT=$(npx wrangler deploy --var "DEPLOY_SHA:$SHORT_SHA" 2>&1)
           echo "$OUTPUT"
           URL=$(echo "$OUTPUT" | grep -oP 'https://[^\s]+\.workers\.dev' | head -1)
           echo "url=$URL" >> "$GITHUB_OUTPUT"
@@ -51,35 +54,36 @@ jobs:
       - name: Restart container
         run: |
           URL="${{ steps.deploy.outputs.url }}"
+          SHA="${{ steps.deploy.outputs.sha }}"
           if [ -z "$URL" ]; then
             echo "No worker URL found, skipping restart"
             exit 0
           fi
 
-          # Wait for image to propagate before restarting
-          echo "Waiting 60s for container image to propagate..."
-          sleep 60
+          # Poll until the new Worker version is live (deploySha matches)
+          echo "Waiting for deploy $SHA to propagate..."
+          for i in $(seq 1 60); do
+            STATUS=$(curl -sf "$URL/status" 2>/dev/null || echo '{}')
+            LIVE_SHA=$(echo "$STATUS" | grep -oP '"deploySha"\s*:\s*"\K[^"]+' || echo "")
+            if [ "$LIVE_SHA" = "$SHA" ]; then
+              echo "Worker updated to $SHA, restarting container..."
+              curl -sf "$URL/restart" -o /dev/null || true
 
-          # Retry restart up to 5 times with 30s between attempts
-          for i in 1 2 3 4 5; do
-            echo "Restart attempt $i..."
-            if curl -sf "$URL/restart" -o /dev/null; then
-              echo "Restart triggered, waiting for container to come up..."
-              # Poll status for up to 120s
-              for j in $(seq 1 12); do
+              # Poll until container is running
+              for j in $(seq 1 30); do
                 sleep 10
                 STATUS=$(curl -sf "$URL/status" 2>/dev/null || echo '{}')
-                echo "  Status: $STATUS"
+                echo "  $STATUS"
                 if echo "$STATUS" | grep -qE '"(running|healthy)"'; then
-                  echo "Container is running!"
+                  echo "Container is up on $SHA!"
                   exit 0
                 fi
               done
-              echo "Container not running yet after restart attempt $i"
-            else
-              echo "Restart request failed on attempt $i"
+              echo "WARNING: Container not running after restart (will start on next cron)"
+              exit 0
             fi
-            [ "$i" -lt 5 ] && sleep 30
+            echo "  Attempt $i: live=$LIVE_SHA, want=$SHA"
+            sleep 10
           done
 
-          echo "WARNING: Container did not come up after all attempts (will start on next cron)"
+          echo "WARNING: Deploy $SHA did not propagate after 10min (will start on next cron)"
