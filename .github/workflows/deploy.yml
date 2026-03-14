@@ -71,7 +71,7 @@ jobs:
 
               # Poll until container is running
               for j in $(seq 1 30); do
-                sleep 10
+                sleep 4
                 STATUS=$(curl -sf "$URL/status" 2>/dev/null || echo '{}')
                 echo "  $STATUS"
                 if echo "$STATUS" | grep -qE '"(running|healthy)"'; then
@@ -83,7 +83,7 @@ jobs:
               exit 0
             fi
             echo "  Attempt $i: live=$LIVE_SHA, want=$SHA"
-            sleep 10
+            sleep 4
           done
 
           echo "WARNING: Deploy $SHA did not propagate after 10min (will start on next cron)"
