@@ -49,4 +49,37 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Restart container
-        run: curl -sf "${{ steps.deploy.outputs.url }}/restart" -o /dev/null || echo "Restart ping failed (container will start on next cron)"
+        run: |
+          URL="${{ steps.deploy.outputs.url }}"
+          if [ -z "$URL" ]; then
+            echo "No worker URL found, skipping restart"
+            exit 0
+          fi
+
+          # Wait for image to propagate before restarting
+          echo "Waiting 60s for container image to propagate..."
+          sleep 60
+
+          # Retry restart up to 5 times with 30s between attempts
+          for i in 1 2 3 4 5; do
+            echo "Restart attempt $i..."
+            if curl -sf "$URL/restart" -o /dev/null; then
+              echo "Restart triggered, waiting for container to come up..."
+              # Poll status for up to 120s
+              for j in $(seq 1 12); do
+                sleep 10
+                STATUS=$(curl -sf "$URL/status" 2>/dev/null || echo '{}')
+                echo "  Status: $STATUS"
+                if echo "$STATUS" | grep -qE '"(running|healthy)"'; then
+                  echo "Container is running!"
+                  exit 0
+                fi
+              done
+              echo "Container not running yet after restart attempt $i"
+            else
+              echo "Restart request failed on attempt $i"
+            fi
+            [ "$i" -lt 5 ] && sleep 30
+          done
+
+          echo "WARNING: Container did not come up after all attempts (will start on next cron)"
