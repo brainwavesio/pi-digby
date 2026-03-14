@@ -17,6 +17,7 @@ import { mkdir, writeFile } from "fs/promises";
 import { createRequire } from "module";
 import { homedir } from "os";
 import { dirname, join } from "path";
+import sharp from "sharp";
 import { createMomSettingsManager, syncLogToSessionManager } from "./context.js";
 import * as log from "./log.js";
 import { createExecutor, type SandboxConfig } from "./sandbox.js";
@@ -70,6 +71,24 @@ const IMAGE_MIME_TYPES: Record<string, string> = {
 
 function getImageMimeType(filename: string): string | undefined {
 	return IMAGE_MIME_TYPES[filename.toLowerCase().split(".").pop() || ""];
+}
+
+const MAX_IMAGE_DIMENSION = 2000;
+
+async function resizeImageIfNeeded(buffer: Buffer, mimeType: string): Promise<{ data: string; mimeType: string }> {
+	const metadata = await sharp(buffer).metadata();
+	const { width = 0, height = 0 } = metadata;
+
+	if (width <= MAX_IMAGE_DIMENSION && height <= MAX_IMAGE_DIMENSION) {
+		return { data: buffer.toString("base64"), mimeType };
+	}
+
+	const resized = await sharp(buffer)
+		.resize(MAX_IMAGE_DIMENSION, MAX_IMAGE_DIMENSION, { fit: "inside", withoutEnlargement: true })
+		.jpeg({ quality: 80 })
+		.toBuffer();
+
+	return { data: resized.toString("base64"), mimeType: "image/jpeg" };
 }
 
 function getMemory(channelDir: string): string {
@@ -862,10 +881,12 @@ async function createRunner(sandboxConfig: SandboxConfig, channelId: string, cha
 
 				if (mimeType && existsSync(fullPath)) {
 					try {
+						const raw = readFileSync(fullPath);
+						const resized = await resizeImageIfNeeded(raw, mimeType);
 						imageAttachments.push({
 							type: "image",
-							mimeType,
-							data: readFileSync(fullPath).toString("base64"),
+							mimeType: resized.mimeType,
+							data: resized.data,
 						});
 					} catch {
 						nonImagePaths.push(fullPath);
