@@ -32,15 +32,7 @@ fi
 # Persist ~/.pi on R2 so OAuth tokens, auth.json, and MCP cache survive restarts.
 # /root/.pi is symlinked -> /data/.pi (the R2 mount).
 mkdir -p /data/.pi
-
-# If /root/.pi already exists as a real directory (e.g. first boot after this change),
-# migrate any existing contents to /data/.pi before replacing with the symlink.
-if [ -d /root/.pi ] && [ ! -L /root/.pi ]; then
-  cp -rn /root/.pi/. /data/.pi/ 2>/dev/null || true
-  rm -rf /root/.pi
-fi
-
-ln -sf /data/.pi /root/.pi
+ln -sfn /data/.pi /root/.pi
 
 # Seed MCP config from repo default on first run
 if [ ! -f /data/.pi/mcp.json ]; then
