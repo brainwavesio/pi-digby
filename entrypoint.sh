@@ -29,8 +29,12 @@ else
   echo "R2 not configured, using ephemeral /data"
 fi
 
-# Seed persistent MCP config from repo default on first run, then symlink
+# Persist ~/.pi on R2 so OAuth tokens, auth.json, and MCP cache survive restarts.
+# /root/.pi is symlinked -> /data/.pi (the R2 mount).
 mkdir -p /data/.pi
+ln -sfn /data/.pi /root/.pi
+
+# Seed MCP config from repo default on first run
 if [ ! -f /data/.pi/mcp.json ]; then
   cp /app/.pi/mcp.json /data/.pi/mcp.json
 fi

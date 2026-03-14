@@ -1,10 +1,12 @@
 {
 	"mcpServers": {
 		"brainwaves": {
-			"url": "http://app.brain-waves.io/mcp"
+			"url": "https://app.brain-waves.io/mcp",
+			"auth": "oauth"
 		},
 		"linear": {
-			"url": "https://mcp.linear.app/mcp"
+			"url": "https://mcp.linear.app/mcp",
+			"auth": "oauth"
 		},
 		"exa": {
 			"url": "https://mcp.exa.ai/mcp?exaApiKey=EXA_API_KEY_PLACEHOLDER"
