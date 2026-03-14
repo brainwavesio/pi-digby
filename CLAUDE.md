@@ -5,7 +5,7 @@ Fork of [badlogic/pi-mono](https://github.com/badlogic/pi-mono) for the Brainwav
 ## What this fork adds
 
 - `deploy/` — Cloudflare Container deployment (Durable Object + Docker)
-- `entrypoint.sh` — seeds persistent MCP config, substitutes env vars, starts mom
+- `entrypoint.sh` — mounts R2 persistent storage, seeds MCP config, starts mom
 - `.pi/mcp.json` — default MCP server config (copied to `/data/.pi/mcp.json` on first boot)
 - MCP support via `pi-mcp-adapter` loaded as an extension factory in `packages/mom/src/agent.ts`
 
@@ -16,7 +16,7 @@ Cloudflare Worker (deploy/src/index.ts)
   └─ Durable Object (PiMomContainer)
        └─ Docker container (Dockerfile)
             ├─ /app         — built monorepo (ephemeral)
-            ├─ /data        — persistent volume (workspace, logs, config)
+            ├─ /data        — R2-backed persistent storage (via tigrisfs FUSE mount)
             └─ entrypoint.sh → node packages/mom/dist/main.js --sandbox=host /data
 ```
 
@@ -29,7 +29,7 @@ Cloudflare Worker (deploy/src/index.ts)
 | Path | Persistent | Purpose |
 |------|-----------|---------|
 | `/app` | No | Built monorepo, wiped on redeploy |
-| `/data` | Yes | Workspace: channel dirs, logs, memory, skills, events |
+| `/data` | Yes (R2) | Workspace: channel dirs, logs, memory, skills, events (R2 FUSE mount) |
 | `/data/.pi/mcp.json` | Yes | MCP server config (agent can edit, survives redeploys) |
 | `/app/.pi/mcp.json` | Symlink | Points to `/data/.pi/mcp.json` at runtime |
 
@@ -59,6 +59,8 @@ Control panel: `https://pi-digby.<account>.workers.dev/` (start, stop, restart, 
 | `AWS_SECRET_ACCESS_KEY` | Bedrock credentials |
 | `BROWSER_USE_API_KEY` | browser-use CLI (cloud mode) |
 | `EXA_API_KEY` | Exa search MCP server |
+| `R2_ACCESS_KEY_ID` | R2 API token (for persistent /data mount) |
+| `R2_SECRET_ACCESS_KEY` | R2 API token secret |
 
 ## MCP setup
 

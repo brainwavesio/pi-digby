@@ -38,8 +38,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libcairo2 libpango-1.0-0 libpangocairo-1.0-0 \
     libjpeg62-turbo libgif7 librsvg2-2 libpixman-1-0 \
     unzip zip less vim nano htop procps tmux \
-    gh \
+    gh fuse \
   && rm -rf /var/lib/apt/lists/*
+
+# tigrisfs (FUSE adapter for mounting R2 buckets)
+RUN VERSION=$(curl -s https://api.github.com/repos/tigrisdata/tigrisfs/releases/latest | grep -o '"tag_name": "[^"]*' | cut -d'"' -f4) \
+  && curl -fsSL "https://github.com/tigrisdata/tigrisfs/releases/download/${VERSION}/tigrisfs_${VERSION#v}_linux_amd64.tar.gz" \
+    -o /tmp/tigrisfs.tar.gz \
+  && tar -xzf /tmp/tigrisfs.tar.gz -C /usr/local/bin/ \
+  && rm /tmp/tigrisfs.tar.gz \
+  && chmod +x /usr/local/bin/tigrisfs
 
 # ripgrep
 RUN curl -fsSL "https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep-14.1.1-x86_64-unknown-linux-musl.tar.gz" \

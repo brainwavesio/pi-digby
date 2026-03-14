@@ -1,4 +1,34 @@
 #!/bin/sh
+# Mount R2 bucket at /data for persistent storage
+if [ -n "$R2_ACCOUNT_ID" ] && [ -n "$R2_BUCKET_NAME" ]; then
+  mkdir -p /data
+  R2_ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+
+  # Scope R2 credentials to the tigrisfs process only,
+  # keeping global AWS_* vars for Bedrock
+  AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID" \
+  AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY" \
+    /usr/local/bin/tigrisfs --endpoint "$R2_ENDPOINT" -f "$R2_BUCKET_NAME" /data &
+
+  # Wait for mount to be ready
+  MOUNT_TIMEOUT=15
+  ELAPSED=0
+  while ! mountpoint -q /data 2>/dev/null; do
+    sleep 1
+    ELAPSED=$((ELAPSED + 1))
+    if [ "$ELAPSED" -ge "$MOUNT_TIMEOUT" ]; then
+      echo "WARNING: R2 mount failed after ${MOUNT_TIMEOUT}s, continuing with ephemeral /data"
+      break
+    fi
+  done
+
+  if mountpoint -q /data 2>/dev/null; then
+    echo "R2 bucket '${R2_BUCKET_NAME}' mounted at /data"
+  fi
+else
+  echo "R2 not configured, using ephemeral /data"
+fi
+
 # Seed persistent MCP config from repo default on first run, then symlink
 mkdir -p /data/.pi
 if [ ! -f /data/.pi/mcp.json ]; then

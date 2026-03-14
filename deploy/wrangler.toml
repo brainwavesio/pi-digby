@@ -22,6 +22,8 @@ crons = ["*/5 * * * *"]
 
 [vars]
 AWS_REGION = "us-east-1"
+R2_ACCOUNT_ID = "b2012d69ea8f177952dca0201c5add58"
+R2_BUCKET_NAME = "pi-digby-data"
 
 [observability]
 enabled = true

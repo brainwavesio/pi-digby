@@ -14,6 +14,10 @@ export class PiMomContainer extends Container {
 		BROWSER_USE_API_KEY: (env.BROWSER_USE_API_KEY as string) ?? "",
 		EXA_API_KEY: (env.EXA_API_KEY as string) ?? "",
 		GH_TOKEN: (env.GH_TOKEN as string) ?? "",
+		R2_ACCOUNT_ID: (env.R2_ACCOUNT_ID as string) ?? "",
+		R2_BUCKET_NAME: (env.R2_BUCKET_NAME as string) ?? "",
+		R2_ACCESS_KEY_ID: (env.R2_ACCESS_KEY_ID as string) ?? "",
+		R2_SECRET_ACCESS_KEY: (env.R2_SECRET_ACCESS_KEY as string) ?? "",
 	};
 
 	override async onStart() {
