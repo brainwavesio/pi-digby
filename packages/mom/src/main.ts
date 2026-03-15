@@ -368,4 +368,13 @@ process.on("SIGTERM", () => {
 		.finally(() => process.exit(0));
 });
 
+// Safety net: don't crash on unhandled errors (e.g. Slack socket disconnects)
+process.on("uncaughtException", (err) => {
+	log.logWarning("Uncaught exception (continuing)", err.message);
+});
+
+process.on("unhandledRejection", (reason) => {
+	log.logWarning("Unhandled rejection (continuing)", reason instanceof Error ? reason.message : String(reason));
+});
+
 bot.start();

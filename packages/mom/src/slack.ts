@@ -159,6 +159,15 @@ export class SlackBot {
 
 		await this.backfillAllChannels();
 
+		// Handle socket errors gracefully - the client auto-reconnects,
+		// but unhandled errors crash the process before it gets the chance.
+		this.socketClient.on("error", (error) => {
+			log.logWarning(
+				"Socket mode error (will auto-reconnect)",
+				error instanceof Error ? error.message : String(error),
+			);
+		});
+
 		this.setupEventHandlers();
 		await this.socketClient.start();
 
