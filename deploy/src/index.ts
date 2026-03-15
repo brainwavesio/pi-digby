@@ -22,6 +22,10 @@ export class PiMomContainer extends Container {
 
 	override async onStart() {
 		console.log("pi-digby started");
+		const count = ((await this.ctx.storage.get<number>("restartCount")) ?? 0) + 1;
+		await this.ctx.storage.put("restartCount", count);
+		await this.ctx.storage.put("startedAt", Date.now());
+		await this.ctx.storage.delete("lastError");
 		// Schedule a recurring alarm to keep the Durable Object awake.
 		// Without this, the DO hibernates when idle and kills the container.
 		await this.schedule(5 * 60, "keepAlive");
@@ -36,12 +40,33 @@ export class PiMomContainer extends Container {
 		await this.renewActivityTimeout();
 	}
 
-	override onStop() {
-		console.log("pi-digby stopped");
+	override async onStop(params: { exitCode: number; reason: string }) {
+		console.log("pi-digby stopped:", params);
+		await this.ctx.storage.put("lastStopAt", Date.now());
+		await this.ctx.storage.put("lastStopExitCode", params.exitCode);
+		await this.ctx.storage.put("lastStopReason", params.reason);
 	}
 
-	override onError(error: unknown) {
+	override async onError(error: unknown) {
 		console.error("pi-digby error:", error);
+		await this.ctx.storage.put("lastError", String(error));
+		await this.ctx.storage.put("lastErrorAt", Date.now());
+	}
+
+	async getDiagnostics() {
+		const startedAt = await this.ctx.storage.get<number>("startedAt");
+		const lastErrorAt = await this.ctx.storage.get<number>("lastErrorAt");
+		const lastStopAt = await this.ctx.storage.get<number>("lastStopAt");
+		return {
+			startedAt: startedAt ? new Date(startedAt).toISOString() : null,
+			uptime: startedAt ? Math.round((Date.now() - startedAt) / 1000) : null,
+			restartCount: (await this.ctx.storage.get<number>("restartCount")) ?? 0,
+			lastError: (await this.ctx.storage.get<string>("lastError")) ?? null,
+			lastErrorAt: lastErrorAt ? new Date(lastErrorAt).toISOString() : null,
+			lastStopAt: lastStopAt ? new Date(lastStopAt).toISOString() : null,
+			lastStopExitCode: (await this.ctx.storage.get<number>("lastStopExitCode")) ?? null,
+			lastStopReason: (await this.ctx.storage.get<string>("lastStopReason")) ?? null,
+		};
 	}
 }
 
@@ -73,7 +98,8 @@ export default {
 				return new Response(null, { status: 302, headers: { Location: "/status" } });
 			case "/status": {
 				const state = await bot.getState();
-				return Response.json({ ...state, deploySha: env.DEPLOY_SHA ?? "" });
+				const diag = await bot.getDiagnostics();
+				return Response.json({ ...state, deploySha: env.DEPLOY_SHA ?? "", ...diag });
 			}
 			default:
 				return new Response(
