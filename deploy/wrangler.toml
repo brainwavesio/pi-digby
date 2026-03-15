@@ -27,3 +27,6 @@ R2_BUCKET_NAME = "pi-digby-data"
 
 [observability]
 enabled = true
+
+[[tail_consumers]]
+service = "cloudflare-tail-worker-datadog"
