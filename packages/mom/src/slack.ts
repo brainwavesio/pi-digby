@@ -2,7 +2,7 @@ import { SocketModeClient } from "@slack/socket-mode";
 import { WebClient } from "@slack/web-api";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "fs";
 import { basename, join } from "path";
-import { shouldProcessAllMessages } from "./config.js";
+import { initConfig, shouldProcessAllMessages } from "./config.js";
 import * as log from "./log.js";
 import type { Attachment, ChannelStore } from "./store.js";
 
@@ -143,6 +143,7 @@ export class SlackBot {
 		this.handler = handler;
 		this.workingDir = config.workingDir;
 		this.store = config.store;
+		initConfig(config.workingDir);
 		this.socketClient = new SocketModeClient({ appToken: config.appToken });
 		this.webClient = new WebClient(config.botToken);
 	}
@@ -292,6 +293,12 @@ export class SlackBot {
 
 			// Skip DMs (handled by message event)
 			if (e.channel.startsWith("D")) {
+				ack();
+				return;
+			}
+
+			// Skip channels where message handler processes everything (avoids double response)
+			if (shouldProcessAllMessages(e.channel)) {
 				ack();
 				return;
 			}

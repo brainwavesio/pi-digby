@@ -1,5 +1,4 @@
-import { existsSync, readFileSync } from "fs";
-import { homedir } from "os";
+import { readFileSync } from "fs";
 import { join } from "path";
 
 export interface PiConfig {
@@ -13,21 +12,25 @@ export interface PiConfig {
 }
 
 let cached: PiConfig | null = null;
+let configDir: string | null = null;
+
+export function initConfig(workingDir: string): void {
+	configDir = workingDir;
+	cached = null;
+}
 
 export function loadPiConfig(): PiConfig {
 	if (cached) return cached;
 
-	const configPath = join(homedir(), ".pi", "config.json");
-	if (!existsSync(configPath)) {
+	if (!configDir) {
 		cached = {};
 		return cached;
 	}
 
 	try {
-		const data = readFileSync(configPath, "utf-8");
+		const data = readFileSync(join(configDir, "digby.json"), "utf-8");
 		cached = JSON.parse(data) as PiConfig;
-	} catch (e) {
-		console.error(`[config] Failed to parse ~/.pi/config.json: ${e}`);
+	} catch {
 		cached = {};
 	}
 
