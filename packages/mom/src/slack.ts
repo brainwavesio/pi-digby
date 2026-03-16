@@ -330,7 +330,7 @@ export class SlackBot {
 
 			// SYNC: Check if busy
 			if (this.handler.isRunning(e.channel)) {
-				this.postMessage(e.channel, "_Already working. Say `@mom stop` to cancel._");
+				this.postMessage(e.channel, "_Still thinking. Say `@digby stop` to cancel._");
 			} else {
 				this.getQueue(e.channel).enqueue(() => this.handler.handleEvent(slackEvent, this));
 			}
@@ -408,7 +408,7 @@ export class SlackBot {
 				}
 
 				if (this.handler.isRunning(e.channel)) {
-					this.postMessage(e.channel, "_Already working. Say `stop` to cancel._");
+					this.postMessage(e.channel, "_Still thinking. Say `stop` to cancel._");
 				} else {
 					this.getQueue(e.channel).enqueue(() => this.handler.handleEvent(slackEvent, this));
 				}
