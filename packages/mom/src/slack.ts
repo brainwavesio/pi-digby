@@ -366,12 +366,10 @@ export class SlackBot {
 			}
 
 			const isDM = e.channel_type === "im";
-			const isBotMention = e.text?.includes(`<@${this.botUserId}>`);
-			const isAnyMention = /<@[A-Z0-9]+>/i.test(e.text ?? "");
 
-			// Skip channel @mentions - always handled by app_mention event.
-			// Use isAnyMention as fallback in case botUserId isn't resolved yet (startup race).
-			if (!isDM && (isBotMention || isAnyMention)) {
+			// In channels, mentions are handled exclusively by app_mention.
+			// The message handler only processes DMs.
+			if (!isDM) {
 				ack();
 				return;
 			}
