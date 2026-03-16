@@ -2,6 +2,7 @@ import { SocketModeClient } from "@slack/socket-mode";
 import { WebClient } from "@slack/web-api";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "fs";
 import { basename, join } from "path";
+import { shouldProcessAllMessages } from "./config.js";
 import * as log from "./log.js";
 import type { Attachment, ChannelStore } from "./store.js";
 
@@ -397,8 +398,9 @@ export class SlackBot {
 			slackEvent.attachments = this.logUserMessage(slackEvent);
 
 			// In channels, mentions are handled exclusively by app_mention.
-			// The message handler only processes DMs (im + mpim).
-			if (eventType !== "dm") {
+			// The message handler only processes DMs (im + mpim),
+			// unless the channel is in processAllMessageChannels config.
+			if (eventType !== "dm" && !shouldProcessAllMessages(e.channel)) {
 				ack();
 				return;
 			}
