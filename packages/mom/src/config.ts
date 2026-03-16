@@ -30,7 +30,8 @@ export function loadPiConfig(): PiConfig {
 	try {
 		const data = readFileSync(join(configDir, "digby.json"), "utf-8");
 		cached = JSON.parse(data) as PiConfig;
-	} catch {
+	} catch (e) {
+		console.warn(`[config] Failed to load digby.json from ${configDir}: ${e}`);
 		cached = {};
 	}
 

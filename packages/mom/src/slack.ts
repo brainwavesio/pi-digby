@@ -356,15 +356,23 @@ export class SlackBot {
 				channel_type?: string;
 				subtype?: string;
 				bot_id?: string;
+				hidden?: boolean;
+				message?: unknown;
 				files?: Array<{ name: string; url_private_download?: string; url_private?: string }>;
 			};
 
-			// Skip bot messages, edits, etc.
+			// Skip bot messages, edits, message_changed wrappers, etc.
 			if (e.bot_id || !e.user || e.user === this.botUserId) {
 				ack();
 				return;
 			}
 			if (e.subtype !== undefined && e.subtype !== "file_share") {
+				ack();
+				return;
+			}
+			// Socket Mode can unwrap message_changed/message_deleted as plain
+			// "message" events. The hidden flag or nested message field gives them away.
+			if (e.hidden || e.message) {
 				ack();
 				return;
 			}
