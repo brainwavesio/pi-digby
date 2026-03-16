@@ -283,6 +283,8 @@ export class SlackBot {
 	private setupEventHandlers(): void {
 		// Channel @mentions
 		this.socketClient.on("app_mention", ({ event, ack }) => {
+			ack();
+
 			const e = event as {
 				text: string;
 				channel: string;
@@ -292,16 +294,10 @@ export class SlackBot {
 			};
 
 			// Skip DMs (handled by message event)
-			if (e.channel.startsWith("D")) {
-				ack();
-				return;
-			}
+			if (e.channel.startsWith("D")) return;
 
 			// Skip channels where message handler processes everything (avoids double response)
-			if (shouldProcessAllMessages(e.channel)) {
-				ack();
-				return;
-			}
+			if (shouldProcessAllMessages(e.channel)) return;
 
 			const slackEvent: SlackEvent = {
 				type: "mention",
@@ -321,7 +317,6 @@ export class SlackBot {
 				log.logInfo(
 					`[${e.channel}] Logged old message (pre-startup), not triggering: ${slackEvent.text.substring(0, 30)}`,
 				);
-				ack();
 				return;
 			}
 
@@ -332,7 +327,6 @@ export class SlackBot {
 				} else {
 					this.postMessage(e.channel, "_Nothing running_");
 				}
-				ack();
 				return;
 			}
 
@@ -342,12 +336,12 @@ export class SlackBot {
 			} else {
 				this.getQueue(e.channel).enqueue(() => this.handler.handleEvent(slackEvent, this));
 			}
-
-			ack();
 		});
 
 		// All messages (for logging) + DMs (for triggering)
 		this.socketClient.on("message", ({ event, ack }) => {
+			ack();
+
 			const e = event as {
 				text?: string;
 				channel: string;
@@ -356,30 +350,13 @@ export class SlackBot {
 				channel_type?: string;
 				subtype?: string;
 				bot_id?: string;
-				hidden?: boolean;
-				message?: unknown;
 				files?: Array<{ name: string; url_private_download?: string; url_private?: string }>;
 			};
 
-			// Skip bot messages, edits, message_changed wrappers, etc.
-			if (e.bot_id || !e.user || e.user === this.botUserId) {
-				ack();
-				return;
-			}
-			if (e.subtype !== undefined && e.subtype !== "file_share") {
-				ack();
-				return;
-			}
-			// Socket Mode can unwrap message_changed/message_deleted as plain
-			// "message" events. The hidden flag or nested message field gives them away.
-			if (e.hidden || e.message) {
-				ack();
-				return;
-			}
-			if (!e.text && (!e.files || e.files.length === 0)) {
-				ack();
-				return;
-			}
+			// Skip bot messages, edits, etc.
+			if (e.bot_id || !e.user || e.user === this.botUserId) return;
+			if (e.subtype !== undefined && e.subtype !== "file_share") return;
+			if (!e.text && (!e.files || e.files.length === 0)) return;
 
 			// Classify by Slack channel_type:
 			//   im/mpim = direct messages (bot responds to all)
@@ -415,15 +392,11 @@ export class SlackBot {
 			// In channels, mentions are handled exclusively by app_mention.
 			// The message handler only processes DMs (im + mpim),
 			// unless the channel is in processAllMessageChannels config.
-			if (eventType !== "dm" && !shouldProcessAllMessages(e.channel)) {
-				ack();
-				return;
-			}
+			if (eventType !== "dm" && !shouldProcessAllMessages(e.channel)) return;
 
 			// Only trigger processing for messages AFTER startup (not replayed old messages)
 			if (this.startupTs && e.ts < this.startupTs) {
 				log.logInfo(`[${e.channel}] Skipping old message (pre-startup): ${slackEvent.text.substring(0, 30)}`);
-				ack();
 				return;
 			}
 
@@ -434,7 +407,6 @@ export class SlackBot {
 				} else {
 					this.postMessage(e.channel, "_Nothing running_");
 				}
-				ack();
 				return;
 			}
 
@@ -443,8 +415,6 @@ export class SlackBot {
 			} else {
 				this.getQueue(e.channel).enqueue(() => this.handler.handleEvent(slackEvent, this));
 			}
-
-			ack();
 		});
 	}
 
