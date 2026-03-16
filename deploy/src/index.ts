@@ -26,6 +26,7 @@ export class PiMomContainer extends Container {
 		await this.ctx.storage.put("restartCount", count);
 		await this.ctx.storage.put("startedAt", Date.now());
 		await this.ctx.storage.delete("lastError");
+		await this.ctx.storage.delete("lastErrorAt");
 		// Schedule a recurring alarm to keep the Durable Object awake.
 		// Without this, the DO hibernates when idle and kills the container.
 		await this.schedule(5 * 60, "keepAlive");
@@ -51,6 +52,36 @@ export class PiMomContainer extends Container {
 		console.error("pi-digby error:", error);
 		await this.ctx.storage.put("lastError", String(error));
 		await this.ctx.storage.put("lastErrorAt", Date.now());
+	}
+
+	async checkHealth(deploySha: string) {
+		const storedSha = await this.ctx.storage.get<string>("deploySha");
+
+		// New deploy detected — force clean restart after rollout settles
+		if (deploySha && storedSha !== deploySha) {
+			console.log(`New deploy detected: ${storedSha ?? "none"} → ${deploySha}, restarting...`);
+			await this.destroy();
+			await this.start();
+			await this.ctx.storage.put("deploySha", deploySha);
+			return;
+		}
+
+		// Container claims to be running but errored after start (Cloudflare ghost state)
+		const startedAt = await this.ctx.storage.get<number>("startedAt");
+		const lastErrorAt = await this.ctx.storage.get<number>("lastErrorAt");
+		const state = await this.getState();
+		if (startedAt && lastErrorAt && lastErrorAt > startedAt) {
+			console.log(`Container errored after start (${new Date(lastErrorAt).toISOString()}), restarting...`);
+			await this.destroy();
+			await this.start();
+			return;
+		}
+
+		// Standard check: restart if not running
+		if (state.status !== "running" && state.status !== "healthy") {
+			console.log(`Bot not running (${state.status}), restarting...`);
+			await this.start();
+		}
 	}
 
 	async getDiagnostics() {
@@ -80,10 +111,9 @@ export default {
 		const url = new URL(request.url);
 		const bot = getContainer(env.PI_MOM, "singleton");
 
-		// Ensure the bot is running on every request (covers fresh deploys)
-		const state = await bot.getState();
-		if (state.status !== "running" && state.status !== "healthy" && url.pathname !== "/stop") {
-			await bot.start();
+		// Health check on every request: detects new deploys + ghost containers
+		if (url.pathname !== "/stop") {
+			await bot.checkHealth(env.DEPLOY_SHA ?? "");
 		}
 
 		switch (url.pathname) {
@@ -119,10 +149,6 @@ export default {
 
 	async scheduled(_event: ScheduledEvent, env: Env) {
 		const bot = getContainer(env.PI_MOM, "singleton");
-		const state = await bot.getState();
-		if (state.status !== "running" && state.status !== "healthy") {
-			console.log(`Bot not running (${state.status}), restarting...`);
-			await bot.start();
-		}
+		await bot.checkHealth(env.DEPLOY_SHA ?? "");
 	},
 } satisfies ExportedHandler<Env>;
