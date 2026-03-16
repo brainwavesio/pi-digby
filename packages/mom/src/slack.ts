@@ -10,7 +10,7 @@ import type { Attachment, ChannelStore } from "./store.js";
 // ============================================================================
 
 export interface SlackEvent {
-	type: "mention" | "dm";
+	type: "mention" | "dm" | "channel";
 	channel: string;
 	ts: string;
 	user: string;
@@ -365,10 +365,26 @@ export class SlackBot {
 				return;
 			}
 
-			const isDM = e.channel_type === "im";
+			// Classify by Slack channel_type:
+			//   im/mpim = direct messages (bot responds to all)
+			//   channel/group = channels (mentions handled by app_mention)
+			let eventType: SlackEvent["type"];
+			switch (e.channel_type) {
+				case "im":
+				case "mpim":
+					eventType = "dm";
+					break;
+				case "channel":
+				case "group":
+					eventType = "channel";
+					break;
+				default:
+					eventType = "channel";
+					break;
+			}
 
 			const slackEvent: SlackEvent = {
-				type: isDM ? "dm" : "mention",
+				type: eventType,
 				channel: e.channel,
 				ts: e.ts,
 				user: e.user,
@@ -381,8 +397,8 @@ export class SlackBot {
 			slackEvent.attachments = this.logUserMessage(slackEvent);
 
 			// In channels, mentions are handled exclusively by app_mention.
-			// The message handler only triggers processing for DMs.
-			if (!isDM) {
+			// The message handler only processes DMs (im + mpim).
+			if (eventType !== "dm") {
 				ack();
 				return;
 			}
@@ -394,24 +410,21 @@ export class SlackBot {
 				return;
 			}
 
-			// Only trigger handler for DMs
-			if (isDM) {
-				// Check for stop command - execute immediately, don't queue!
-				if (slackEvent.text.toLowerCase().trim() === "stop") {
-					if (this.handler.isRunning(e.channel)) {
-						this.handler.handleStop(e.channel, this); // Don't await, don't queue
-					} else {
-						this.postMessage(e.channel, "_Nothing running_");
-					}
-					ack();
-					return;
-				}
-
+			// Check for stop command - execute immediately, don't queue!
+			if (slackEvent.text.toLowerCase().trim() === "stop") {
 				if (this.handler.isRunning(e.channel)) {
-					this.postMessage(e.channel, "_Still thinking. Say `stop` to cancel._");
+					this.handler.handleStop(e.channel, this); // Don't await, don't queue
 				} else {
-					this.getQueue(e.channel).enqueue(() => this.handler.handleEvent(slackEvent, this));
+					this.postMessage(e.channel, "_Nothing running_");
 				}
+				ack();
+				return;
+			}
+
+			if (this.handler.isRunning(e.channel)) {
+				this.postMessage(e.channel, "_Still thinking. Say `stop` to cancel._");
+			} else {
+				this.getQueue(e.channel).enqueue(() => this.handler.handleEvent(slackEvent, this));
 			}
 
 			ack();
