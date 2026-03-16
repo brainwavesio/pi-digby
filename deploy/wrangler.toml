@@ -16,9 +16,9 @@ class_name = "PiMomContainer"
 tag = "v1"
 new_sqlite_classes = ["PiMomContainer"]
 
-# Auto-restart check every 5 minutes
+# Health check every 2 minutes (detects new deploys + ghost containers)
 [triggers]
-crons = ["*/5 * * * *"]
+crons = ["*/2 * * * *"]
 
 [vars]
 AWS_REGION = "us-east-1"

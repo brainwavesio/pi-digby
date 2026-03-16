@@ -51,25 +51,25 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      - name: Restart container
+      - name: Trigger health check
         run: |
           URL="${{ steps.deploy.outputs.url }}"
           SHA="${{ steps.deploy.outputs.sha }}"
           if [ -z "$URL" ]; then
-            echo "No worker URL found, skipping restart"
+            echo "No worker URL found, skipping"
             exit 0
           fi
 
-          # Poll until the new Worker version is live (deploySha matches)
+          # Poll until the new Worker version is live
           echo "Waiting for deploy $SHA to propagate..."
           for i in $(seq 1 60); do
             STATUS=$(curl -sf "$URL/status" 2>/dev/null || echo '{}')
             LIVE_SHA=$(echo "$STATUS" | grep -oP '"deploySha"\s*:\s*"\K[^"]+' || echo "")
             if [ "$LIVE_SHA" = "$SHA" ]; then
-              echo "Worker updated to $SHA, restarting container..."
-              curl -sf "$URL/restart" -o /dev/null || true
-
-              # Poll until container is running
+              echo "Worker updated to $SHA"
+              # checkHealth runs on every /status request — it will detect the
+              # new deploySha and force a clean container restart automatically.
+              # Poll until the container is up.
               for j in $(seq 1 30); do
                 sleep 4
                 STATUS=$(curl -sf "$URL/status" 2>/dev/null || echo '{}')
@@ -79,11 +79,11 @@ jobs:
                   exit 0
                 fi
               done
-              echo "WARNING: Container not running after restart (will start on next cron)"
+              echo "WARNING: Container not running yet (cron will retry within 2min)"
               exit 0
             fi
             echo "  Attempt $i: live=$LIVE_SHA, want=$SHA"
             sleep 4
           done
 
-          echo "WARNING: Deploy $SHA did not propagate after 10min (will start on next cron)"
+          echo "WARNING: Deploy $SHA did not propagate after 4min (cron will retry within 2min)"
