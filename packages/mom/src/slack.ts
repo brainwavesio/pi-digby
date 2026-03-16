@@ -367,13 +367,6 @@ export class SlackBot {
 
 			const isDM = e.channel_type === "im";
 
-			// In channels, mentions are handled exclusively by app_mention.
-			// The message handler only processes DMs.
-			if (!isDM) {
-				ack();
-				return;
-			}
-
 			const slackEvent: SlackEvent = {
 				type: isDM ? "dm" : "mention",
 				channel: e.channel,
@@ -386,6 +379,13 @@ export class SlackBot {
 			// SYNC: Log to log.jsonl (ALL messages - channel chatter and DMs)
 			// Also downloads attachments in background and stores local paths
 			slackEvent.attachments = this.logUserMessage(slackEvent);
+
+			// In channels, mentions are handled exclusively by app_mention.
+			// The message handler only triggers processing for DMs.
+			if (!isDM) {
+				ack();
+				return;
+			}
 
 			// Only trigger processing for messages AFTER startup (not replayed old messages)
 			if (this.startupTs && e.ts < this.startupTs) {
