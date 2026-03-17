@@ -121,12 +121,20 @@ function createSlackContext(event: SlackEvent, slack: SlackBot, state: ChannelSt
 
 	const user = slack.getUser(event.user);
 
+	// When replying in a thread, all messages go to that thread
+	const replyThreadTs = event.threadTs;
+
 	// Extract event filename for status message
 	const eventFilename = isEvent ? event.text.match(/^\[EVENT:([^:]+):/)?.[1] : undefined;
 
+	// Prepend thread context to the message text so the agent sees the conversation
+	const agentText = event.threadContext
+		? `[Thread context]\n${event.threadContext}\n\n[Your message]\n${event.text}`
+		: event.text;
+
 	return {
 		message: {
-			text: event.text,
+			text: agentText,
 			rawText: event.text,
 			user: event.user,
 			userName: user?.userName,
@@ -157,7 +165,7 @@ function createSlackContext(event: SlackEvent, slack: SlackBot, state: ChannelSt
 					if (messageTs) {
 						await slack.updateMessage(event.channel, messageTs, displayText);
 					} else {
-						messageTs = await slack.postMessage(event.channel, displayText);
+						messageTs = await slack.postMessageMaybeThread(event.channel, displayText, replyThreadTs);
 					}
 
 					if (shouldLog && messageTs) {
@@ -187,7 +195,7 @@ function createSlackContext(event: SlackEvent, slack: SlackBot, state: ChannelSt
 					if (messageTs) {
 						await slack.updateMessage(event.channel, messageTs, displayText);
 					} else {
-						messageTs = await slack.postMessage(event.channel, displayText);
+						messageTs = await slack.postMessageMaybeThread(event.channel, displayText, replyThreadTs);
 					}
 				} catch (err) {
 					log.logWarning("Slack replaceMessage error", err instanceof Error ? err.message : String(err));
@@ -223,7 +231,11 @@ function createSlackContext(event: SlackEvent, slack: SlackBot, state: ChannelSt
 					try {
 						if (!messageTs) {
 							accumulatedText = eventFilename ? `_Starting event: ${eventFilename}_` : "_Thinking_";
-							messageTs = await slack.postMessage(event.channel, accumulatedText + workingIndicator);
+							messageTs = await slack.postMessageMaybeThread(
+								event.channel,
+								accumulatedText + workingIndicator,
+								replyThreadTs,
+							);
 						}
 					} catch (err) {
 						log.logWarning("Slack setTyping error", err instanceof Error ? err.message : String(err));
@@ -304,6 +316,11 @@ const handler: MomHandler = {
 		state.stopRequested = false;
 
 		log.logInfo(`[${event.channel}] Starting run: ${event.text.substring(0, 50)}`);
+
+		// Fetch thread context if this is a thread reply
+		if (event.threadTs) {
+			event.threadContext = await slack.fetchThreadContext(event.channel, event.threadTs);
+		}
 
 		try {
 			// Create context adapter

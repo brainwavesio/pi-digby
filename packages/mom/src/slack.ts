@@ -16,6 +16,10 @@ export interface SlackEvent {
 	ts: string;
 	user: string;
 	text: string;
+	/** Parent thread timestamp — set when the message is a reply in a thread */
+	threadTs?: string;
+	/** Formatted thread context prepended to agent input (populated by fetchThreadContext) */
+	threadContext?: string;
 	files?: Array<{ name?: string; url_private_download?: string; url_private?: string }>;
 	/** Processed attachments with local paths (populated after logUserMessage) */
 	attachments?: Attachment[];
@@ -213,6 +217,47 @@ export class SlackBot {
 		return result.ts as string;
 	}
 
+	async postMessageMaybeThread(channel: string, text: string, threadTs?: string): Promise<string> {
+		if (threadTs) {
+			return this.postInThread(channel, threadTs, text);
+		}
+		return this.postMessage(channel, text);
+	}
+
+	/**
+	 * Fetch thread messages for context. Returns formatted string of up to 20 messages
+	 * preceding the triggering message, or undefined if not in a thread.
+	 */
+	async fetchThreadContext(channel: string, threadTs: string): Promise<string | undefined> {
+		try {
+			const result = await this.webClient.conversations.replies({
+				channel,
+				ts: threadTs,
+				limit: 21, // 20 context messages + the parent
+			});
+			const messages = result.messages as
+				| Array<{ user?: string; bot_id?: string; text?: string; ts?: string }>
+				| undefined;
+			if (!messages || messages.length <= 1) return undefined;
+
+			// Format all messages except the last (which is the triggering message)
+			const lines: string[] = [];
+			for (const msg of messages.slice(0, -1)) {
+				if (!msg.text) continue;
+				const user = msg.user ? this.users.get(msg.user) : undefined;
+				const name = user?.displayName || user?.userName || msg.user || "unknown";
+				const time = msg.ts
+					? new Date(parseFloat(msg.ts) * 1000).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })
+					: "";
+				lines.push(`[${name} ${time}]: ${msg.text}`);
+			}
+			return lines.length > 0 ? lines.join("\n") : undefined;
+		} catch (err) {
+			log.logWarning("Failed to fetch thread context", err instanceof Error ? err.message : String(err));
+			return undefined;
+		}
+	}
+
 	async uploadFile(channel: string, filePath: string, title?: string): Promise<void> {
 		const fileName = title || basename(filePath);
 		const fileContent = readFileSync(filePath);
@@ -290,6 +335,7 @@ export class SlackBot {
 				channel: string;
 				user: string;
 				ts: string;
+				thread_ts?: string;
 				files?: Array<{ name: string; url_private_download?: string; url_private?: string }>;
 			};
 
@@ -305,6 +351,7 @@ export class SlackBot {
 				ts: e.ts,
 				user: e.user,
 				text: e.text.replace(/<@[A-Z0-9]+>/gi, "").trim(),
+				threadTs: e.thread_ts,
 				files: e.files,
 			};
 
