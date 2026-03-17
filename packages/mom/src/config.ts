@@ -9,6 +9,8 @@ export interface PiConfig {
 		 */
 		processAllMessageChannels?: string[];
 	};
+	/** Post tool calls/thinking to thread under bot's message (default: false) */
+	debugThreading?: boolean;
 }
 
 let cached: PiConfig | null = null;
@@ -41,4 +43,8 @@ export function loadPiConfig(): PiConfig {
 export function shouldProcessAllMessages(channelId: string): boolean {
 	const config = loadPiConfig();
 	return config.slack?.processAllMessageChannels?.includes(channelId) ?? false;
+}
+
+export function isDebugThreadingEnabled(): boolean {
+	return loadPiConfig().debugThreading ?? false;
 }

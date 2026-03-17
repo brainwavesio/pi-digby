@@ -18,6 +18,7 @@ import { createRequire } from "module";
 import { homedir } from "os";
 import { dirname, join } from "path";
 import sharp from "sharp";
+import { isDebugThreadingEnabled } from "./config.js";
 import { createMomSettingsManager, syncLogToSessionManager } from "./context.js";
 import * as log from "./log.js";
 import { createExecutor, type SandboxConfig } from "./sandbox.js";
@@ -348,7 +349,9 @@ Maintain ${workspacePath}/SYSTEM.md to log all environment modifications:
 Update this file whenever you modify the environment. On fresh container, read it first to restore your setup.
 
 ## Log Queries (for older history)
-Format: \`{"date":"...","ts":"...","user":"...","userName":"...","text":"...","isBot":false}\`
+Format: \`{"date":"...","ts":"...","threadTs":"...","user":"...","userName":"...","text":"...","isBot":false}\`
+- \`threadTs\` is set for messages inside a thread (value = parent message ts)
+- Messages without \`threadTs\` are in the main channel
 The log contains user messages and your final responses (not tool calls/results).
 ${isDocker ? "Install jq: apk add jq" : ""}
 
@@ -361,6 +364,12 @@ grep -i "topic" log.jsonl | jq -c '{date: .date[0:19], user: (.userName // .user
 
 # Messages from specific user
 grep '"userName":"mario"' log.jsonl | tail -20 | jq -c '{date: .date[0:19], text}'
+
+# Main channel only (exclude thread messages)
+grep -v '"threadTs"' log.jsonl | tail -30 | jq -c '{date: .date[0:19], user: (.userName // .user), text}'
+
+# Specific thread
+grep '"threadTs":"<ts>"' log.jsonl | jq -c '{date: .date[0:19], user: (.userName // .user), text}'
 \`\`\`
 
 ## Browser (browser-use CLI)
@@ -588,6 +597,7 @@ async function createRunner(sandboxConfig: SandboxConfig, channelId: string, cha
 			cacheWrite: 0,
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 		},
+		stepCount: 0,
 		stopReason: "stop",
 		errorMessage: undefined as string | undefined,
 	};
@@ -619,6 +629,7 @@ async function createRunner(sandboxConfig: SandboxConfig, channelId: string, cha
 			pendingTools.delete(agentEvent.toolCallId);
 
 			const durationMs = pending ? Date.now() - pending.startTime : 0;
+			runState.stepCount++;
 
 			if (agentEvent.isError) {
 				log.logToolError(logCtx, agentEvent.toolName, durationMs, resultStr);
@@ -626,19 +637,21 @@ async function createRunner(sandboxConfig: SandboxConfig, channelId: string, cha
 				log.logToolSuccess(logCtx, agentEvent.toolName, durationMs, resultStr);
 			}
 
-			// Post args + result to thread
-			const label = pending?.args ? (pending.args as { label?: string }).label : undefined;
-			const argsFormatted = pending
-				? formatToolArgsForSlack(agentEvent.toolName, pending.args as Record<string, unknown>)
-				: "(args not found)";
-			const duration = (durationMs / 1000).toFixed(1);
-			let threadMessage = `*${agentEvent.isError ? "✗" : "✓"} ${agentEvent.toolName}*`;
-			if (label) threadMessage += `: ${label}`;
-			threadMessage += ` (${duration}s)\n`;
-			if (argsFormatted) threadMessage += `\`\`\`\n${argsFormatted}\n\`\`\`\n`;
-			threadMessage += `*Result:*\n\`\`\`\n${resultStr}\n\`\`\``;
+			// Post args + result to debug thread (only when debug threading is on)
+			if (isDebugThreadingEnabled()) {
+				const label = pending?.args ? (pending.args as { label?: string }).label : undefined;
+				const argsFormatted = pending
+					? formatToolArgsForSlack(agentEvent.toolName, pending.args as Record<string, unknown>)
+					: "(args not found)";
+				const duration = (durationMs / 1000).toFixed(1);
+				let threadMessage = `*${agentEvent.isError ? "✗" : "✓"} ${agentEvent.toolName}*`;
+				if (label) threadMessage += `: ${label}`;
+				threadMessage += ` (${duration}s)\n`;
+				if (argsFormatted) threadMessage += `\`\`\`\n${argsFormatted}\n\`\`\`\n`;
+				threadMessage += `*Result:*\n\`\`\`\n${resultStr}\n\`\`\``;
 
-			queue.enqueueMessage(threadMessage, "thread", "tool result thread", false);
+				queue.enqueueMessage(threadMessage, "thread", "tool result thread", false);
+			}
 
 			if (agentEvent.isError) {
 				queue.enqueue(() => ctx.respond(`_Error: ${truncate(resultStr, 200)}_`, false), "tool error");
@@ -688,13 +701,17 @@ async function createRunner(sandboxConfig: SandboxConfig, channelId: string, cha
 				for (const thinking of thinkingParts) {
 					log.logThinking(logCtx, thinking);
 					queue.enqueueMessage(`_${thinking}_`, "main", "thinking main");
-					queue.enqueueMessage(`_${thinking}_`, "thread", "thinking thread", false);
+					if (isDebugThreadingEnabled()) {
+						queue.enqueueMessage(`_${thinking}_`, "thread", "thinking thread", false);
+					}
 				}
 
 				if (text.trim()) {
 					log.logResponse(logCtx, text);
 					queue.enqueueMessage(text, "main", "response main");
-					queue.enqueueMessage(text, "thread", "response thread", false);
+					if (isDebugThreadingEnabled()) {
+						queue.enqueueMessage(text, "thread", "response thread", false);
+					}
 				}
 			}
 		} else if (event.type === "auto_compaction_start") {
@@ -760,7 +777,7 @@ async function createRunner(sandboxConfig: SandboxConfig, channelId: string, cha
 
 			// Sync messages from log.jsonl that arrived while we were offline or busy
 			// Exclude the current message (it will be added via prompt())
-			const syncedCount = syncLogToSessionManager(sessionManager, channelDir, ctx.message.ts);
+			const syncedCount = syncLogToSessionManager(sessionManager, channelDir, ctx.message.ts, ctx.message.threadTs);
 			if (syncedCount > 0) {
 				log.logInfo(`[${channelId}] Synced ${syncedCount} messages from log.jsonl`);
 			}
@@ -825,6 +842,7 @@ async function createRunner(sandboxConfig: SandboxConfig, channelId: string, cha
 				cacheWrite: 0,
 				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 			};
+			runState.stepCount = 0;
 			runState.stopReason = "stop";
 			runState.errorMessage = undefined;
 
@@ -839,7 +857,11 @@ async function createRunner(sandboxConfig: SandboxConfig, channelId: string, cha
 							const errMsg = err instanceof Error ? err.message : String(err);
 							log.logWarning(`Slack API error (${errorContext})`, errMsg);
 							try {
-								await ctx.respondInThread(`_Error: ${errMsg}_`);
+								if (isDebugThreadingEnabled()) {
+									await ctx.respondInThread(`_Error: ${errMsg}_`);
+								} else {
+									await ctx.respond(`_Error: ${errMsg}_`, false);
+								}
 							} catch {
 								// Ignore
 							}
@@ -914,11 +936,15 @@ async function createRunner(sandboxConfig: SandboxConfig, channelId: string, cha
 			// Wait for queued messages
 			await queueChain;
 
-			// Handle error case - update main message and post error to thread
+			// Handle error case - show error in main message (or thread if debug threading is on)
 			if (runState.stopReason === "error" && runState.errorMessage) {
 				try {
-					await ctx.replaceMessage("_Sorry, something went wrong_");
-					await ctx.respondInThread(`_Error: ${runState.errorMessage}_`);
+					if (isDebugThreadingEnabled()) {
+						await ctx.replaceMessage("_Sorry, something went wrong_");
+						await ctx.respondInThread(`_Error: ${runState.errorMessage}_`);
+					} else {
+						await ctx.replaceMessage(`_Sorry, something went wrong: ${truncate(runState.errorMessage, 500)}_`);
+					}
 				} catch (err) {
 					const errMsg = err instanceof Error ? err.message : String(err);
 					log.logWarning("Failed to post error message", errMsg);
@@ -944,10 +970,16 @@ async function createRunner(sandboxConfig: SandboxConfig, channelId: string, cha
 					}
 				} else if (finalText.trim()) {
 					try {
+						// Append compact usage footer
+						const footer =
+							runState.stepCount > 0 || runState.totalUsage.cost.total > 0
+								? `\n_${runState.stepCount} steps · $${runState.totalUsage.cost.total.toFixed(2)}_`
+								: "";
+						const fullText = finalText + footer;
 						const mainText =
-							finalText.length > SLACK_MAX_LENGTH
-								? `${finalText.substring(0, SLACK_MAX_LENGTH - 50)}\n\n_(see thread for full response)_`
-								: finalText;
+							fullText.length > SLACK_MAX_LENGTH
+								? `${fullText.substring(0, SLACK_MAX_LENGTH - 50)}\n\n_(see thread for full response)_`
+								: fullText;
 						await ctx.replaceMessage(mainText);
 					} catch (err) {
 						const errMsg = err instanceof Error ? err.message : String(err);
@@ -956,9 +988,8 @@ async function createRunner(sandboxConfig: SandboxConfig, channelId: string, cha
 				}
 			}
 
-			// Log usage summary with context info
+			// Log usage summary (console only — footer is now inline on the main message)
 			if (runState.totalUsage.cost.total > 0) {
-				// Get last non-aborted assistant message for context calculation
 				const messages = session.messages;
 				const lastAssistantMessage = messages
 					.slice()
@@ -973,9 +1004,7 @@ async function createRunner(sandboxConfig: SandboxConfig, channelId: string, cha
 					: 0;
 				const contextWindow = model.contextWindow || 200000;
 
-				const summary = log.logUsageSummary(runState.logCtx!, runState.totalUsage, contextTokens, contextWindow);
-				runState.queue.enqueue(() => ctx.respondInThread(summary), "usage summary");
-				await queueChain;
+				log.logUsageSummary(runState.logCtx!, runState.totalUsage, contextTokens, contextWindow);
 			}
 
 			// Clear run state

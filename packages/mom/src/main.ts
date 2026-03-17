@@ -2,6 +2,7 @@
 
 import { join, resolve } from "path";
 import { type AgentRunner, getOrCreateRunner, shutdownAllRunners } from "./agent.js";
+import { isDebugThreadingEnabled } from "./config.js";
 import { downloadChannel } from "./download.js";
 import { createEventsWatcher } from "./events.js";
 import * as log from "./log.js";
@@ -121,6 +122,9 @@ function createSlackContext(event: SlackEvent, slack: SlackBot, state: ChannelSt
 
 	const user = slack.getUser(event.user);
 
+	// Thread-aware routing: replies go to the thread the user mentioned us in
+	const replyThreadTs = event.threadTs;
+
 	// Extract event filename for status message
 	const eventFilename = isEvent ? event.text.match(/^\[EVENT:([^:]+):/)?.[1] : undefined;
 
@@ -133,6 +137,7 @@ function createSlackContext(event: SlackEvent, slack: SlackBot, state: ChannelSt
 			channel: event.channel,
 			ts: event.ts,
 			attachments: (event.attachments || []).map((a) => ({ local: a.local })),
+			threadTs: event.threadTs,
 		},
 		channelName: slack.getChannel(event.channel)?.name,
 		store: state.store,
@@ -157,11 +162,11 @@ function createSlackContext(event: SlackEvent, slack: SlackBot, state: ChannelSt
 					if (messageTs) {
 						await slack.updateMessage(event.channel, messageTs, displayText);
 					} else {
-						messageTs = await slack.postMessage(event.channel, displayText);
+						messageTs = await slack.postMessage(event.channel, displayText, replyThreadTs);
 					}
 
 					if (shouldLog && messageTs) {
-						slack.logBotResponse(event.channel, text, messageTs);
+						slack.logBotResponse(event.channel, text, messageTs, replyThreadTs);
 					}
 				} catch (err) {
 					log.logWarning("Slack respond error", err instanceof Error ? err.message : String(err));
@@ -187,7 +192,7 @@ function createSlackContext(event: SlackEvent, slack: SlackBot, state: ChannelSt
 					if (messageTs) {
 						await slack.updateMessage(event.channel, messageTs, displayText);
 					} else {
-						messageTs = await slack.postMessage(event.channel, displayText);
+						messageTs = await slack.postMessage(event.channel, displayText, replyThreadTs);
 					}
 				} catch (err) {
 					log.logWarning("Slack replaceMessage error", err instanceof Error ? err.message : String(err));
@@ -197,6 +202,7 @@ function createSlackContext(event: SlackEvent, slack: SlackBot, state: ChannelSt
 		},
 
 		respondInThread: async (text: string) => {
+			if (!isDebugThreadingEnabled()) return;
 			updatePromise = updatePromise.then(async () => {
 				try {
 					if (messageTs) {
@@ -207,7 +213,7 @@ function createSlackContext(event: SlackEvent, slack: SlackBot, state: ChannelSt
 							threadText = `${threadText.substring(0, MAX_THREAD_LENGTH - 50)}\n\n_(truncated)_`;
 						}
 
-						const ts = await slack.postInThread(event.channel, messageTs, threadText);
+						const ts = await slack.postMessage(event.channel, threadText, messageTs);
 						threadMessageTs.push(ts);
 					}
 				} catch (err) {
@@ -223,7 +229,11 @@ function createSlackContext(event: SlackEvent, slack: SlackBot, state: ChannelSt
 					try {
 						if (!messageTs) {
 							accumulatedText = eventFilename ? `_Starting event: ${eventFilename}_` : "_Thinking_";
-							messageTs = await slack.postMessage(event.channel, accumulatedText + workingIndicator);
+							messageTs = await slack.postMessage(
+								event.channel,
+								accumulatedText + workingIndicator,
+								replyThreadTs,
+							);
 						}
 					} catch (err) {
 						log.logWarning("Slack setTyping error", err instanceof Error ? err.message : String(err));
