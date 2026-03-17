@@ -34,6 +34,11 @@ fi
 mkdir -p /data/.pi
 ln -sfn /data/.pi /root/.pi
 
+# Persist ~/.gitconfig on R2 so git identity survives restarts.
+if [ -f /data/.gitconfig ]; then
+  ln -sf /data/.gitconfig /root/.gitconfig
+fi
+
 # Seed MCP config from repo default on first run
 if [ ! -f /data/.pi/mcp.json ]; then
   cp /app/.pi/mcp.json /data/.pi/mcp.json
