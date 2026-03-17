@@ -22,6 +22,7 @@ import { dirname, join } from "path";
 interface LogMessage {
 	date?: string;
 	ts?: string;
+	threadTs?: string;
 	user?: string;
 	userName?: string;
 	text?: string;
@@ -37,12 +38,14 @@ interface LogMessage {
  * @param sessionManager - The SessionManager to sync to
  * @param channelDir - Path to channel directory containing log.jsonl
  * @param excludeSlackTs - Slack timestamp of current message (will be added via prompt(), not sync)
+ * @param threadTs - If set, filter context to channel-root messages up to thread root + this thread's messages
  * @returns Number of messages synced
  */
 export function syncLogToSessionManager(
 	sessionManager: SessionManager,
 	channelDir: string,
 	excludeSlackTs?: string,
+	threadTs?: string,
 ): number {
 	const logFile = join(channelDir, "log.jsonl");
 
@@ -93,7 +96,7 @@ export function syncLogToSessionManager(
 	const logContent = readFileSync(logFile, "utf-8");
 	const logLines = logContent.trim().split("\n").filter(Boolean);
 
-	const newMessages: Array<{ timestamp: number; message: UserMessage }> = [];
+	const newMessages: Array<{ timestamp: number; message: UserMessage; isThread: boolean }> = [];
 
 	for (const line of logLines) {
 		try {
@@ -105,6 +108,18 @@ export function syncLogToSessionManager(
 
 			// Skip the current message being processed (will be added via prompt())
 			if (excludeSlackTs && slackTs === excludeSlackTs) continue;
+
+			// Thread-aware filtering
+			if (threadTs) {
+				// Thread context: channel-root messages up to thread root + this thread's messages
+				const isInThread = logMsg.threadTs === threadTs;
+				const isChannelRoot = !logMsg.threadTs;
+				if (isChannelRoot && slackTs > threadTs) continue;
+				if (!isChannelRoot && !isInThread) continue;
+			} else {
+				// Channel root context: skip all thread messages
+				if (logMsg.threadTs) continue;
+			}
 
 			// Skip bot messages - added through agent flow
 			if (logMsg.isBot) continue;
@@ -122,7 +137,7 @@ export function syncLogToSessionManager(
 				timestamp: msgTime,
 			};
 
-			newMessages.push({ timestamp: msgTime, message: userMessage });
+			newMessages.push({ timestamp: msgTime, message: userMessage, isThread: !!logMsg.threadTs });
 			existingMessages.add(messageText); // Track to avoid duplicates within this sync
 		} catch {
 			// Skip malformed lines
@@ -133,6 +148,23 @@ export function syncLogToSessionManager(
 
 	// Sort by timestamp and add to session
 	newMessages.sort((a, b) => a.timestamp - b.timestamp);
+
+	// Inject a thread separator at the boundary between channel-root and thread messages
+	if (threadTs) {
+		const splitIdx = newMessages.findIndex((m) => m.isThread);
+		if (splitIdx > 0) {
+			const separatorMessage: UserMessage = {
+				role: "user",
+				content: [{ type: "text", text: "[Continuing in thread]" }],
+				timestamp: newMessages[splitIdx].timestamp - 1,
+			};
+			newMessages.splice(splitIdx, 0, {
+				timestamp: separatorMessage.timestamp!,
+				message: separatorMessage,
+				isThread: false,
+			});
+		}
+	}
 
 	for (const { message } of newMessages) {
 		sessionManager.appendMessage(message);

@@ -19,6 +19,8 @@ export interface SlackEvent {
 	files?: Array<{ name?: string; url_private_download?: string; url_private?: string }>;
 	/** Processed attachments with local paths (populated after logUserMessage) */
 	attachments?: Attachment[];
+	/** Thread parent timestamp — set when the message is inside a thread */
+	threadTs?: string;
 }
 
 export interface SlackUser {
@@ -53,6 +55,7 @@ export interface SlackContext {
 		channel: string;
 		ts: string;
 		attachments: Array<{ local: string }>;
+		threadTs?: string;
 	};
 	channelName?: string;
 	channels: ChannelInfo[];
@@ -195,8 +198,12 @@ export class SlackBot {
 		return Array.from(this.channels.values());
 	}
 
-	async postMessage(channel: string, text: string): Promise<string> {
-		const result = await this.webClient.chat.postMessage({ channel, text });
+	async postMessage(channel: string, text: string, threadTs?: string): Promise<string> {
+		const result = await this.webClient.chat.postMessage({
+			channel,
+			text,
+			...(threadTs && { thread_ts: threadTs }),
+		});
 		return result.ts as string;
 	}
 
@@ -206,11 +213,6 @@ export class SlackBot {
 
 	async deleteMessage(channel: string, ts: string): Promise<void> {
 		await this.webClient.chat.delete({ channel, ts });
-	}
-
-	async postInThread(channel: string, threadTs: string, text: string): Promise<string> {
-		const result = await this.webClient.chat.postMessage({ channel, thread_ts: threadTs, text });
-		return result.ts as string;
 	}
 
 	async uploadFile(channel: string, filePath: string, title?: string): Promise<void> {
@@ -237,10 +239,11 @@ export class SlackBot {
 	/**
 	 * Log a bot response to log.jsonl
 	 */
-	logBotResponse(channel: string, text: string, ts: string): void {
+	logBotResponse(channel: string, text: string, ts: string, threadTs?: string): void {
 		this.logToFile(channel, {
 			date: new Date().toISOString(),
 			ts,
+			...(threadTs && { threadTs }),
 			user: "bot",
 			text,
 			attachments: [],
@@ -290,6 +293,7 @@ export class SlackBot {
 				channel: string;
 				user: string;
 				ts: string;
+				thread_ts?: string;
 				files?: Array<{ name: string; url_private_download?: string; url_private?: string }>;
 			};
 
@@ -306,6 +310,7 @@ export class SlackBot {
 				user: e.user,
 				text: e.text.replace(/<@[A-Z0-9]+>/gi, "").trim(),
 				files: e.files,
+				threadTs: e.thread_ts,
 			};
 
 			// SYNC: Log to log.jsonl (ALWAYS, even for old messages)
@@ -325,14 +330,14 @@ export class SlackBot {
 				if (this.handler.isRunning(e.channel)) {
 					this.handler.handleStop(e.channel, this); // Don't await, don't queue
 				} else {
-					this.postMessage(e.channel, "_Nothing running_");
+					this.postMessage(e.channel, "_Nothing running_", slackEvent.threadTs);
 				}
 				return;
 			}
 
 			// SYNC: Check if busy
 			if (this.handler.isRunning(e.channel)) {
-				this.postMessage(e.channel, "_Still thinking. Say `@digby stop` to cancel._");
+				this.postMessage(e.channel, "_Still thinking. Say `@digby stop` to cancel._", slackEvent.threadTs);
 			} else {
 				this.getQueue(e.channel).enqueue(() => this.handler.handleEvent(slackEvent, this));
 			}
@@ -347,6 +352,7 @@ export class SlackBot {
 				channel: string;
 				user?: string;
 				ts: string;
+				thread_ts?: string;
 				channel_type?: string;
 				subtype?: string;
 				bot_id?: string;
@@ -383,6 +389,7 @@ export class SlackBot {
 				user: e.user,
 				text: (e.text || "").replace(/<@[A-Z0-9]+>/gi, "").trim(),
 				files: e.files,
+				threadTs: e.thread_ts,
 			};
 
 			// SYNC: Log to log.jsonl (ALL messages - channel chatter and DMs)
@@ -405,13 +412,13 @@ export class SlackBot {
 				if (this.handler.isRunning(e.channel)) {
 					this.handler.handleStop(e.channel, this); // Don't await, don't queue
 				} else {
-					this.postMessage(e.channel, "_Nothing running_");
+					this.postMessage(e.channel, "_Nothing running_", slackEvent.threadTs);
 				}
 				return;
 			}
 
 			if (this.handler.isRunning(e.channel)) {
-				this.postMessage(e.channel, "_Still thinking. Say `stop` to cancel._");
+				this.postMessage(e.channel, "_Still thinking. Say `stop` to cancel._", slackEvent.threadTs);
 			} else {
 				this.getQueue(e.channel).enqueue(() => this.handler.handleEvent(slackEvent, this));
 			}
@@ -429,6 +436,7 @@ export class SlackBot {
 		this.logToFile(event.channel, {
 			date: new Date(parseFloat(event.ts) * 1000).toISOString(),
 			ts: event.ts,
+			...(event.threadTs && { threadTs: event.threadTs }),
 			user: event.user,
 			userName: user?.userName,
 			displayName: user?.displayName,
