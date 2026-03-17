@@ -973,7 +973,7 @@ async function createRunner(sandboxConfig: SandboxConfig, channelId: string, cha
 						// Append compact usage footer
 						const footer =
 							runState.stepCount > 0 || runState.totalUsage.cost.total > 0
-								? `\n_${runState.stepCount} steps · $${runState.totalUsage.cost.total.toFixed(2)}_`
+								? `    «_${runState.stepCount} steps · $${runState.totalUsage.cost.total.toFixed(2)}_»`
 								: "";
 						const fullText = finalText + footer;
 						const mainText =
