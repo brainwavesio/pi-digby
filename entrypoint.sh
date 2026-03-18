@@ -57,7 +57,14 @@ if [ ! -f /data/qmd.yml ]; then
 fi
 mkdir -p /data/.cache/qmd /data/memory
 
-# Background: download models and build initial index
-QMD_CACHE_DIR=/data/.cache/qmd qmd --config /data/qmd.yml embed &
+# Persist ~/.cache/qmd on R2 so embedding models and index survive restarts.
+mkdir -p /root/.cache
+ln -sfn /data/.cache/qmd /root/.cache/qmd
+
+# Background: build initial index
+# Collections are persisted in the sqlite DB (via QMD_CACHE_DIR), not re-read from qmd.yml.
+# qmd.yml is only used for seeding collections on first boot (see entrypoint setup above).
+# The --config flag does not exist in this version of qmd; config path is not a CLI option.
+QMD_CACHE_DIR=/data/.cache/qmd qmd embed &
 
 exec node packages/mom/dist/main.js --sandbox=host /data
