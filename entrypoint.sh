@@ -57,7 +57,10 @@ if [ ! -f /data/qmd.yml ]; then
 fi
 mkdir -p /data/.cache/qmd /data/memory
 
-# Background: download models and build initial index
-QMD_CACHE_DIR=/data/.cache/qmd qmd --config /data/qmd.yml embed &
+# Persist ~/.cache/qmd on R2 so embedding models and index survive restarts.
+ln -sfn /data/.cache/qmd /root/.cache/qmd
+
+# Background: build initial index
+QMD_CACHE_DIR=/data/.cache/qmd qmd embed &
 
 exec node packages/mom/dist/main.js --sandbox=host /data

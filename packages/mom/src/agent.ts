@@ -949,6 +949,16 @@ async function createRunner(sandboxConfig: SandboxConfig, channelId: string, cha
 					const errMsg = err instanceof Error ? err.message : String(err);
 					log.logWarning("Failed to post error message", errMsg);
 				}
+			} else if (runState.stopReason === "max_tokens") {
+				// Ran out of output token budget mid-response — post a visible notice rather than going silent
+				try {
+					const footer = runState.totalUsage.cost.total > 0
+						? `    _«${runState.stepCount} steps · $${runState.totalUsage.cost.total.toFixed(2)}»_`
+						: "";
+					await ctx.replaceMessage(`_Ran out of space mid-response. Try asking me to continue, or break it into smaller steps._${footer}`);
+				} catch (err) {
+					log.logWarning("Failed to post max_tokens message", err instanceof Error ? err.message : String(err));
+				}
 			} else {
 				// Final message update
 				const messages = session.messages;
