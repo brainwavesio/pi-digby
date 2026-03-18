@@ -58,6 +58,7 @@ fi
 mkdir -p /data/.cache/qmd /data/memory
 
 # Persist ~/.cache/qmd on R2 so embedding models and index survive restarts.
+mkdir -p /root/.cache
 ln -sfn /data/.cache/qmd /root/.cache/qmd
 
 # Background: build initial index
