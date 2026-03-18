@@ -86,7 +86,7 @@ export interface MomHandler {
 	 * Handle stop command (ASYNC)
 	 * Called when user says "stop" while mom is running
 	 */
-	handleStop(channelId: string, slack: SlackBot): Promise<void>;
+	handleStop(channelId: string, slack: SlackBot, threadTs?: string): Promise<void>;
 }
 
 // ============================================================================
@@ -328,7 +328,7 @@ export class SlackBot {
 			// Check for stop command - execute immediately, don't queue!
 			if (slackEvent.text.toLowerCase().trim() === "stop") {
 				if (this.handler.isRunning(e.channel)) {
-					this.handler.handleStop(e.channel, this); // Don't await, don't queue
+					this.handler.handleStop(e.channel, this, slackEvent.threadTs); // Don't await, don't queue
 				} else {
 					this.postMessage(e.channel, "_Nothing running_", slackEvent.threadTs);
 				}
@@ -410,7 +410,7 @@ export class SlackBot {
 			// Check for stop command - execute immediately, don't queue!
 			if (slackEvent.text.toLowerCase().trim() === "stop") {
 				if (this.handler.isRunning(e.channel)) {
-					this.handler.handleStop(e.channel, this); // Don't await, don't queue
+					this.handler.handleStop(e.channel, this, slackEvent.threadTs); // Don't await, don't queue
 				} else {
 					this.postMessage(e.channel, "_Nothing running_", slackEvent.threadTs);
 				}

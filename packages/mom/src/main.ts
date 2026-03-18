@@ -89,6 +89,7 @@ interface ChannelState {
 	store: ChannelStore;
 	stopRequested: boolean;
 	stopMessageTs?: string;
+	activeThreadTs?: string; // Thread ts of the currently running interaction
 }
 
 const channelStates = new Map<string, ChannelState>();
@@ -294,15 +295,15 @@ const handler: MomHandler = {
 		return state?.running ?? false;
 	},
 
-	async handleStop(channelId: string, slack: SlackBot): Promise<void> {
+	async handleStop(channelId: string, slack: SlackBot, threadTs?: string): Promise<void> {
 		const state = channelStates.get(channelId);
 		if (state?.running) {
 			state.stopRequested = true;
 			state.runner.abort();
-			const ts = await slack.postMessage(channelId, "_Stopping..._");
+			const ts = await slack.postMessage(channelId, "_Stopping..._", threadTs);
 			state.stopMessageTs = ts; // Save for updating later
 		} else {
-			await slack.postMessage(channelId, "_Nothing running_");
+			await slack.postMessage(channelId, "_Nothing running_", threadTs);
 		}
 	},
 
@@ -330,7 +331,7 @@ const handler: MomHandler = {
 					await slack.updateMessage(event.channel, state.stopMessageTs, "_Stopped_");
 					state.stopMessageTs = undefined;
 				} else {
-					await slack.postMessage(event.channel, "_Stopped_");
+					await slack.postMessage(event.channel, "_Stopped_", event.threadTs);
 				}
 			}
 		} catch (err) {
