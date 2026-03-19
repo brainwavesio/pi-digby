@@ -847,6 +847,7 @@ async function createRunner(sandboxConfig: SandboxConfig, channelId: string, cha
 			runState.stepCount = 0;
 			runState.stopReason = "stop";
 			runState.errorMessage = undefined;
+			runState.lastStreamedText = "";
 
 			// Create queue for this run
 			let queueChain = Promise.resolve();
