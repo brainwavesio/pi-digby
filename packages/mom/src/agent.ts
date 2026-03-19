@@ -600,6 +600,7 @@ async function createRunner(sandboxConfig: SandboxConfig, channelId: string, cha
 		stepCount: 0,
 		stopReason: "stop",
 		errorMessage: undefined as string | undefined,
+		lastStreamedText: "" as string,
 	};
 
 	// Subscribe to events ONCE
@@ -708,6 +709,7 @@ async function createRunner(sandboxConfig: SandboxConfig, channelId: string, cha
 
 				if (text.trim()) {
 					log.logResponse(logCtx, text);
+					runState.lastStreamedText = text;
 					queue.enqueueMessage(text, "main", "response main");
 					if (isDebugThreadingEnabled()) {
 						queue.enqueueMessage(text, "thread", "response thread", false);
@@ -963,11 +965,15 @@ async function createRunner(sandboxConfig: SandboxConfig, channelId: string, cha
 				// Final message update
 				const messages = session.messages;
 				const lastAssistant = messages.filter((m) => m.role === "assistant").pop();
-				const finalText =
+				const sessionFinalText =
 					lastAssistant?.content
 						.filter((c): c is { type: "text"; text: string } => c.type === "text")
 						.map((c) => c.text)
 						.join("\n") || "";
+				// After compaction, session.messages may not contain the real final response
+				// (the last assistant entry becomes the compaction summary). Fall back to the
+				// last text we actually streamed to Slack.
+				const finalText = sessionFinalText.trim() ? sessionFinalText : runState.lastStreamedText;
 
 				// Check for [SILENT] marker - delete message and thread instead of posting
 				if (finalText.trim() === "[SILENT]" || finalText.trim().startsWith("[SILENT]")) {
