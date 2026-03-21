@@ -16,6 +16,7 @@ export class PiMomContainer extends Container {
 		GH_TOKEN: (env.GH_TOKEN as string) ?? "",
 		DD_API_KEY: (env.DD_API_KEY as string) ?? "",
 		DD_APP_KEY: (env.DD_APP_KEY as string) ?? "",
+		DD_SITE: "datadoghq.eu",
 		R2_ACCOUNT_ID: (env.R2_ACCOUNT_ID as string) ?? "",
 		R2_BUCKET_NAME: (env.R2_BUCKET_NAME as string) ?? "",
 		R2_ACCESS_KEY_ID: (env.R2_ACCESS_KEY_ID as string) ?? "",
