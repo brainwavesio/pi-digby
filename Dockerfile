@@ -58,6 +58,14 @@ RUN curl -fsSL -o /usr/local/bin/cloudflared \
     "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64" \
   && chmod +x /usr/local/bin/cloudflared
 
+# pup (Datadog CLI)
+RUN VERSION=$(curl -s https://api.github.com/repos/datadog-labs/pup/releases/latest | grep -o '"tag_name": "[^"]*' | cut -d'"' -f4) \
+  && curl -fsSL "https://github.com/datadog-labs/pup/releases/download/${VERSION}/pup_${VERSION#v}_Linux_x86_64.tar.gz" \
+    -o /tmp/pup.tar.gz \
+  && tar -xzf /tmp/pup.tar.gz -C /usr/local/bin/ pup \
+  && rm /tmp/pup.tar.gz \
+  && chmod +x /usr/local/bin/pup
+
 # uv (fast Python package manager)
 RUN curl -fsSL https://astral.sh/uv/install.sh | sh \
   && ln -s /root/.local/bin/uv /usr/local/bin/uv \
