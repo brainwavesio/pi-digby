@@ -123,8 +123,14 @@ function createSlackContext(event: SlackEvent, slack: SlackBot, state: ChannelSt
 
 	const user = slack.getUser(event.user);
 
-	// Thread-aware routing: replies go to the thread the user mentioned us in
-	const replyThreadTs = event.threadTs;
+	// Thread-aware routing:
+	// - Mentions in channels: always reply in a thread. If the mention is already in a thread,
+	//   use that thread. If it's a top-level message, start a new thread on that message.
+	// - DMs: reply in channel (no thread) unless the user messaged inside a thread.
+	const replyThreadTs =
+		event.type === "mention"
+			? (event.threadTs ?? event.ts) // always thread in channels
+			: event.threadTs; // DMs: thread only if already in one
 
 	// Extract event filename for status message
 	const eventFilename = isEvent ? event.text.match(/^\[EVENT:([^:]+):/)?.[1] : undefined;
@@ -281,6 +287,15 @@ function createSlackContext(event: SlackEvent, slack: SlackBot, state: ChannelSt
 				}
 			});
 			await updatePromise;
+		},
+
+		addReaction: async (emoji: string) => {
+			try {
+				await slack.addReaction(event.channel, event.ts, emoji);
+			} catch (err) {
+				// Reactions are best-effort — don't surface errors to the user
+				log.logWarning("addReaction failed", err instanceof Error ? err.message : String(err));
+			}
 		},
 	};
 }

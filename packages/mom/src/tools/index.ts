@@ -4,9 +4,11 @@ import { attachTool } from "./attach.js";
 import { createBashTool } from "./bash.js";
 import { createEditTool } from "./edit.js";
 import { createReadTool } from "./read.js";
+import { reactTool } from "./react.js";
 import { createWriteTool } from "./write.js";
 
 export { setUploadFunction } from "./attach.js";
+export { setReactionFunction } from "./react.js";
 
 export function createMomTools(executor: Executor): AgentTool<any>[] {
 	return [
@@ -15,5 +17,6 @@ export function createMomTools(executor: Executor): AgentTool<any>[] {
 		createEditTool(executor),
 		createWriteTool(executor),
 		attachTool,
+		reactTool,
 	];
 }
