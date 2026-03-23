@@ -249,7 +249,6 @@ export class SlackBot {
 			const owned =
 				!!root &&
 				(root.user === this.botUserId ||
-					!!root.bot_id ||
 					(!!this.botUserId && !!root.text?.includes(`<@${this.botUserId}>`)));
 			this.botThreads.set(key, owned);
 			return owned;
