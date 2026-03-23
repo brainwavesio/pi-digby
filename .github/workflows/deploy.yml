@@ -42,7 +42,10 @@ jobs:
           SHA="${{ github.sha }}"
           SHORT_SHA="${SHA:0:7}"
           echo "sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
-          OUTPUT=$(npx wrangler deploy --var "DEPLOY_SHA:$SHORT_SHA" 2>&1)
+          OUTPUT=$(npx wrangler deploy --var "DEPLOY_SHA:$SHORT_SHA" 2>&1) || {
+            echo "$OUTPUT"
+            exit 1
+          }
           echo "$OUTPUT"
           URL=$(echo "$OUTPUT" | grep -oP 'https://[^\s]+\.workers\.dev' | head -1)
           echo "url=$URL" >> "$GITHUB_OUTPUT"
