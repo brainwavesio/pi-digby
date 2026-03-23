@@ -473,7 +473,16 @@ export class SlackBot {
 			};
 
 			if (isChannelThread) {
-				// Async: check if bot owns this thread before triggering
+				// Async: check if bot owns this thread before triggering.
+				// Even in a bot-owned thread, don't fire if another user is mentioned
+				// but the bot is not — e.g. "@tom make a ticket" shouldn't wake us up.
+				const text = e.text || "";
+				const botMentioned = !!this.botUserId && text.includes(`<@${this.botUserId}>`);
+				const anyMention = /<@[A-Z0-9]+>/.test(text);
+				const shouldTrigger = botMentioned || !anyMention;
+
+				if (!shouldTrigger) return;
+
 				this.isBotThread(e.channel, e.thread_ts!).then((owned) => {
 					if (owned) processEvent();
 				}).catch(() => {/* ignore lookup errors */});
