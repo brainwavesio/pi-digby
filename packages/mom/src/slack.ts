@@ -135,6 +135,9 @@ export class SlackBot {
 	private workingDir: string;
 	private store: ChannelStore;
 	private botUserId: string | null = null;
+	// Cache of thread root ts → whether this bot owns/was mentioned in the root.
+	// Populated lazily on first threaded message in a channel thread.
+	private botThreads = new Map<string, boolean>();
 	private startupTs: string | null = null; // Messages older than this are just logged, not processed
 
 	private users = new Map<string, SlackUser>();
@@ -206,7 +209,13 @@ export class SlackBot {
 			text,
 			...(threadTs && { thread_ts: threadTs }),
 		});
-		return result.ts as string;
+		const ts = result.ts as string;
+		// If this is a root message (not a reply), mark this thread as bot-owned
+		// so future replies in the thread trigger processing without a lookup.
+		if (!threadTs && ts) {
+			this.botThreads.set(`${channel}:${ts}`, true);
+		}
+		return ts;
 	}
 
 	async updateMessage(channel: string, ts: string, text: string): Promise<void> {
@@ -219,6 +228,34 @@ export class SlackBot {
 
 	async addReaction(channel: string, ts: string, emoji: string): Promise<void> {
 		await this.webClient.reactions.add({ channel, timestamp: ts, name: emoji });
+	}
+
+	/**
+	 * Check if a thread was started by or mentions this bot.
+	 * Result is cached permanently — thread ownership never changes.
+	 */
+	private async isBotThread(channel: string, threadTs: string): Promise<boolean> {
+		const key = `${channel}:${threadTs}`;
+		if (this.botThreads.has(key)) return this.botThreads.get(key)!;
+
+		try {
+			const result = await this.webClient.conversations.history({
+				channel,
+				latest: threadTs,
+				inclusive: true,
+				limit: 1,
+			});
+			const root = (result.messages as Array<{ user?: string; bot_id?: string; text?: string }> | undefined)?.[0];
+			const owned =
+				!!root &&
+				(root.user === this.botUserId ||
+					!!root.bot_id ||
+					(!!this.botUserId && !!root.text?.includes(`<@${this.botUserId}>`)));
+			this.botThreads.set(key, owned);
+			return owned;
+		} catch {
+			return false;
+		}
 	}
 
 	async uploadFile(channel: string, filePath: string, title?: string): Promise<void> {
@@ -402,10 +439,16 @@ export class SlackBot {
 			// Also downloads attachments in background and stores local paths
 			slackEvent.attachments = this.logUserMessage(slackEvent);
 
-			// In channels, mentions are handled exclusively by app_mention.
-			// The message handler only processes DMs (im + mpim),
-			// unless the channel is in processAllMessageChannels config.
-			if (eventType !== "dm" && !shouldProcessAllMessages(e.channel)) return;
+			// Determine whether to trigger processing:
+			//   DMs: always trigger
+			//   processAllMessageChannels: always trigger
+			//   Channel thread where bot owns the root: always trigger (async check)
+			//   Channel mention: handled by app_mention, not here
+			const isDm = eventType === "dm";
+			const isAlwaysChannel = shouldProcessAllMessages(e.channel);
+			const isChannelThread = eventType === "channel" && !!e.thread_ts;
+
+			if (!isDm && !isAlwaysChannel && !isChannelThread) return;
 
 			// Only trigger processing for messages AFTER startup (not replayed old messages)
 			if (this.startupTs && e.ts < this.startupTs) {
@@ -413,21 +456,32 @@ export class SlackBot {
 				return;
 			}
 
-			// Check for stop command - execute immediately, don't queue!
-			if (slackEvent.text.toLowerCase().trim() === "stop") {
-				if (this.handler.isRunning(e.channel)) {
-					this.handler.handleStop(e.channel, this, slackEvent.threadTs); // Don't await, don't queue
-				} else {
-					this.postMessage(e.channel, "_Nothing running_", slackEvent.threadTs);
+			const processEvent = () => {
+				// Check for stop command - execute immediately, don't queue!
+				if (slackEvent.text.toLowerCase().trim() === "stop") {
+					if (this.handler.isRunning(e.channel)) {
+						this.handler.handleStop(e.channel, this, slackEvent.threadTs);
+					} else {
+						this.postMessage(e.channel, "_Nothing running_", slackEvent.threadTs);
+					}
+					return;
 				}
+				if (this.handler.isRunning(e.channel)) {
+					this.postMessage(e.channel, "_Still thinking. Say `stop` to cancel._", slackEvent.threadTs);
+				} else {
+					this.getQueue(e.channel).enqueue(() => this.handler.handleEvent(slackEvent, this));
+				}
+			};
+
+			if (isChannelThread) {
+				// Async: check if bot owns this thread before triggering
+				this.isBotThread(e.channel, e.thread_ts!).then((owned) => {
+					if (owned) processEvent();
+				}).catch(() => {/* ignore lookup errors */});
 				return;
 			}
 
-			if (this.handler.isRunning(e.channel)) {
-				this.postMessage(e.channel, "_Still thinking. Say `stop` to cancel._", slackEvent.threadTs);
-			} else {
-				this.getQueue(e.channel).enqueue(() => this.handler.handleEvent(slackEvent, this));
-			}
+			processEvent();
 		});
 	}
 
