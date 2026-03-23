@@ -24,7 +24,7 @@ import * as log from "./log.js";
 import { createExecutor, type SandboxConfig } from "./sandbox.js";
 import type { ChannelInfo, SlackContext, UserInfo } from "./slack.js";
 import type { ChannelStore } from "./store.js";
-import { createMomTools, setUploadFunction } from "./tools/index.js";
+import { createMomTools, setUploadFunction, setReactionFunction } from "./tools/index.js";
 
 // Hardcoded model for now - TODO: make configurable (issue #63)
 const model = getModel("amazon-bedrock", "us.anthropic.claude-sonnet-4-6");
@@ -390,6 +390,7 @@ Sessions persist between commands for multi-step browsing.
 - write: Create/overwrite files
 - edit: Surgical file edits
 - attach: Share files to Slack
+- react: Add an emoji reaction to the triggering message. Use instead of a text reply when a reaction is enough — 👀 for noted, ✅ for done, 🎉 for good news. If you react, respond with \`[SILENT]\` so no message is posted.
 
 Each tool requires a "label" parameter (shown to user).
 `;
@@ -827,6 +828,11 @@ async function createRunner(sandboxConfig: SandboxConfig, channelId: string, cha
 			setUploadFunction(async (filePath: string, title?: string) => {
 				const hostPath = translateToHostPath(filePath, channelDir, workspacePath, channelId);
 				await ctx.uploadFile(hostPath, title);
+			});
+
+			// Set up reaction function
+			setReactionFunction(async (emoji: string) => {
+				await ctx.addReaction(emoji);
 			});
 
 			// Reset per-run state

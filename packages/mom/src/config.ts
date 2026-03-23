@@ -1,4 +1,4 @@
-import { readFileSync } from "fs";
+import { readFileSync, statSync } from "fs";
 import { join } from "path";
 
 export interface PiConfig {
@@ -13,31 +13,52 @@ export interface PiConfig {
 	debugThreading?: boolean;
 }
 
+// Hot-reload: re-read digby.json at most every 2 minutes, or when mtime changes.
+const CACHE_TTL_MS = 2 * 60 * 1000;
+
 let cached: PiConfig | null = null;
 let configDir: string | null = null;
+let lastCheckedAt = 0;
+let lastMtime = 0;
 
 export function initConfig(workingDir: string): void {
 	configDir = workingDir;
 	cached = null;
+	lastCheckedAt = 0;
+	lastMtime = 0;
 }
 
 export function loadPiConfig(): PiConfig {
-	if (cached) return cached;
+	if (!configDir) return {};
 
-	if (!configDir) {
-		cached = {};
+	const now = Date.now();
+
+	// Only stat the file if cache TTL has expired
+	if (cached && now - lastCheckedAt < CACHE_TTL_MS) {
 		return cached;
 	}
 
+	const configPath = join(configDir, "digby.json");
+
 	try {
-		const data = readFileSync(join(configDir, "digby.json"), "utf-8");
-		cached = JSON.parse(data) as PiConfig;
+		const mtime = statSync(configPath).mtimeMs;
+		lastCheckedAt = now;
+
+		// File hasn't changed — keep cached value
+		if (cached && mtime === lastMtime) {
+			return cached;
+		}
+
+		// File changed (or first load) — re-read
+		cached = JSON.parse(readFileSync(configPath, "utf-8")) as PiConfig;
+		lastMtime = mtime;
 	} catch (e) {
 		console.warn(`[config] Failed to load digby.json from ${configDir}: ${e}`);
-		cached = {};
+		lastCheckedAt = now;
+		cached = cached ?? {}; // keep stale cache on read error rather than resetting
 	}
 
-	return cached;
+	return cached!;
 }
 
 export function shouldProcessAllMessages(channelId: string): boolean {

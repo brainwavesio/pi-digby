@@ -67,6 +67,8 @@ export interface SlackContext {
 	uploadFile: (filePath: string, title?: string) => Promise<void>;
 	setWorking: (working: boolean) => Promise<void>;
 	deleteMessage: () => Promise<void>;
+	/** React to the triggering message with an emoji (e.g. "eyes", "white_check_mark") */
+	addReaction: (emoji: string) => Promise<void>;
 }
 
 export interface MomHandler {
@@ -213,6 +215,10 @@ export class SlackBot {
 
 	async deleteMessage(channel: string, ts: string): Promise<void> {
 		await this.webClient.chat.delete({ channel, ts });
+	}
+
+	async addReaction(channel: string, ts: string, emoji: string): Promise<void> {
+		await this.webClient.reactions.add({ channel, timestamp: ts, name: emoji });
 	}
 
 	async uploadFile(channel: string, filePath: string, title?: string): Promise<void> {
