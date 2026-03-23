@@ -155,7 +155,12 @@ export function syncLogToSessionManager(
 		if (splitIdx > 0) {
 			const separatorMessage: UserMessage = {
 				role: "user",
-				content: [{ type: "text", text: "[Continuing in thread]" }],
+				content: [
+					{
+						type: "text",
+						text: "---\nThe messages above are channel history (background context). The thread you are replying in starts below. Focus your response on the thread conversation.\n---",
+					},
+				],
 				timestamp: newMessages[splitIdx].timestamp - 1,
 			};
 			newMessages.splice(splitIdx, 0, {
