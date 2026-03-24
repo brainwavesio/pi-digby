@@ -478,7 +478,7 @@ export class SlackBot {
 				// but the bot is not — e.g. "@tom make a ticket" shouldn't wake us up.
 				const text = e.text || "";
 				const botMentioned = !!this.botUserId && text.includes(`<@${this.botUserId}>`);
-				const anyMention = /<@[A-Z0-9]+>/.test(text);
+				const anyMention = /<@[A-Z0-9]+>/i.test(text);
 				const shouldTrigger = botMentioned || !anyMention;
 
 				if (!shouldTrigger) return;
