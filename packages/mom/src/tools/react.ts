@@ -20,11 +20,7 @@ export const reactTool: AgentTool<typeof reactSchema> = {
 	description:
 		"Add an emoji reaction to the message you're responding to. Use instead of a text reply when a reaction is sufficient acknowledgement — e.g. 👀 for 'noted', ✅ for 'done', 🎉 for good news. Reactions are silent (no message posted).",
 	parameters: reactSchema,
-	execute: async (
-		_toolCallId: string,
-		{ emoji }: { label: string; emoji: string },
-		signal?: AbortSignal,
-	) => {
+	execute: async (_toolCallId: string, { emoji }: { label: string; emoji: string }, signal?: AbortSignal) => {
 		if (!reactionFn) {
 			throw new Error("Reaction function not configured");
 		}

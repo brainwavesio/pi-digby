@@ -248,8 +248,7 @@ export class SlackBot {
 			const root = (result.messages as Array<{ user?: string; bot_id?: string; text?: string }> | undefined)?.[0];
 			const owned =
 				!!root &&
-				(root.user === this.botUserId ||
-					(!!this.botUserId && !!root.text?.includes(`<@${this.botUserId}>`)));
+				(root.user === this.botUserId || (!!this.botUserId && !!root.text?.includes(`<@${this.botUserId}>`)));
 			this.botThreads.set(key, owned);
 			return owned;
 		} catch {
@@ -483,9 +482,13 @@ export class SlackBot {
 
 				if (!shouldTrigger) return;
 
-				this.isBotThread(e.channel, e.thread_ts!).then((owned) => {
-					if (owned) processEvent();
-				}).catch(() => {/* ignore lookup errors */});
+				this.isBotThread(e.channel, e.thread_ts!)
+					.then((owned) => {
+						if (owned) processEvent();
+					})
+					.catch(() => {
+						/* ignore lookup errors */
+					});
 				return;
 			}
 
