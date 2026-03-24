@@ -24,7 +24,7 @@ import * as log from "./log.js";
 import { createExecutor, type SandboxConfig } from "./sandbox.js";
 import type { ChannelInfo, SlackContext, UserInfo } from "./slack.js";
 import type { ChannelStore } from "./store.js";
-import { createMomTools, setUploadFunction, setReactionFunction } from "./tools/index.js";
+import { createMomTools, setReactionFunction, setUploadFunction } from "./tools/index.js";
 
 // Hardcoded model for now - TODO: make configurable (issue #63)
 const model = getModel("amazon-bedrock", "us.anthropic.claude-sonnet-4-6");
@@ -961,10 +961,13 @@ async function createRunner(sandboxConfig: SandboxConfig, channelId: string, cha
 			} else if (runState.stopReason === "max_tokens") {
 				// Ran out of output token budget mid-response — post a visible notice rather than going silent
 				try {
-					const footer = runState.stepCount > 0 || runState.totalUsage.cost.total > 0
-						? `    _«${runState.stepCount} steps · $${runState.totalUsage.cost.total.toFixed(2)}»_`
-						: "";
-					await ctx.replaceMessage(`_Ran out of space mid-response. Try asking me to continue, or break it into smaller steps._${footer}`);
+					const footer =
+						runState.stepCount > 0 || runState.totalUsage.cost.total > 0
+							? `    _«${runState.stepCount} steps · $${runState.totalUsage.cost.total.toFixed(2)}»_`
+							: "";
+					await ctx.replaceMessage(
+						`_Ran out of space mid-response. Try asking me to continue, or break it into smaller steps._${footer}`,
+					);
 				} catch (err) {
 					log.logWarning("Failed to post max_tokens message", err instanceof Error ? err.message : String(err));
 				}
