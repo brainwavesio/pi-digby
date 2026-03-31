@@ -24,7 +24,7 @@ import * as log from "./log.js";
 import { createExecutor, type SandboxConfig } from "./sandbox.js";
 import type { ChannelInfo, SlackContext, UserInfo } from "./slack.js";
 import type { ChannelStore } from "./store.js";
-import { createMomTools, setReactionFunction, setUploadFunction } from "./tools/index.js";
+import { createMomTools } from "./tools/index.js";
 
 // Hardcoded model for now - TODO: make configurable (issue #63)
 const model = getModel("amazon-bedrock", "us.anthropic.claude-sonnet-4-6");
@@ -492,8 +492,8 @@ async function createRunner(sandboxConfig: SandboxConfig, channelId: string, cha
 	const executor = createExecutor(sandboxConfig);
 	const workspacePath = executor.getWorkspacePath(channelDir.replace(`/${channelId}`, ""));
 
-	// Create tools
-	const tools = createMomTools(executor);
+	// Create tools (per-runner contexts avoid cross-channel races)
+	const { tools, contexts: toolContexts } = createMomTools(executor);
 
 	// System prompt — mutable so the systemPromptOverride closure always returns the
 	// latest version. AgentSession.prompt() resets the agent's prompt to _baseSystemPrompt
@@ -824,16 +824,14 @@ async function createRunner(sandboxConfig: SandboxConfig, channelId: string, cha
 				session.setActiveToolsByName(session.getActiveToolNames());
 			}
 
-			// Set up file upload function
-			setUploadFunction(async (filePath: string, title?: string) => {
+			// Set up file upload and reaction functions (per-runner, not global)
+			toolContexts.attach.uploadFn = async (filePath: string, title?: string) => {
 				const hostPath = translateToHostPath(filePath, channelDir, workspacePath, channelId);
 				await ctx.uploadFile(hostPath, title);
-			});
-
-			// Set up reaction function
-			setReactionFunction(async (emoji: string) => {
+			};
+			toolContexts.react.reactionFn = async (emoji: string) => {
 				await ctx.addReaction(emoji);
-			});
+			};
 
 			// Reset per-run state
 			runState.ctx = ctx;

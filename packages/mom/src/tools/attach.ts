@@ -2,11 +2,8 @@ import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { Type } from "@sinclair/typebox";
 import { basename, resolve as resolvePath } from "path";
 
-// This will be set by the agent before running
-let uploadFn: ((filePath: string, title?: string) => Promise<void>) | null = null;
-
-export function setUploadFunction(fn: (filePath: string, title?: string) => Promise<void>): void {
-	uploadFn = fn;
+export interface AttachContext {
+	uploadFn: ((filePath: string, title?: string) => Promise<void>) | null;
 }
 
 const attachSchema = Type.Object({
@@ -15,33 +12,35 @@ const attachSchema = Type.Object({
 	title: Type.Optional(Type.String({ description: "Title for the file (defaults to filename)" })),
 });
 
-export const attachTool: AgentTool<typeof attachSchema> = {
-	name: "attach",
-	label: "attach",
-	description:
-		"Attach a file to your response. Use this to share files, images, or documents with the user. Only files from /workspace/ can be attached.",
-	parameters: attachSchema,
-	execute: async (
-		_toolCallId: string,
-		{ path, title }: { label: string; path: string; title?: string },
-		signal?: AbortSignal,
-	) => {
-		if (!uploadFn) {
-			throw new Error("Upload function not configured");
-		}
+export function createAttachTool(ctx: AttachContext): AgentTool<typeof attachSchema> {
+	return {
+		name: "attach",
+		label: "attach",
+		description:
+			"Attach a file to your response. Use this to share files, images, or documents with the user. Only files from /workspace/ can be attached.",
+		parameters: attachSchema,
+		execute: async (
+			_toolCallId: string,
+			{ path, title }: { label: string; path: string; title?: string },
+			signal?: AbortSignal,
+		) => {
+			if (!ctx.uploadFn) {
+				throw new Error("Upload function not configured");
+			}
 
-		if (signal?.aborted) {
-			throw new Error("Operation aborted");
-		}
+			if (signal?.aborted) {
+				throw new Error("Operation aborted");
+			}
 
-		const absolutePath = resolvePath(path);
-		const fileName = title || basename(absolutePath);
+			const absolutePath = resolvePath(path);
+			const fileName = title || basename(absolutePath);
 
-		await uploadFn(absolutePath, fileName);
+			await ctx.uploadFn(absolutePath, fileName);
 
-		return {
-			content: [{ type: "text" as const, text: `Attached file: ${fileName}` }],
-			details: undefined,
-		};
-	},
-};
+			return {
+				content: [{ type: "text" as const, text: `Attached file: ${fileName}` }],
+				details: undefined,
+			};
+		},
+	};
+}
