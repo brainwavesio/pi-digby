@@ -18,7 +18,7 @@ import { createRequire } from "module";
 import { homedir } from "os";
 import { dirname, join } from "path";
 import sharp from "sharp";
-import { isDebugThreadingEnabled } from "./config.js";
+import { getRunTimeout, isDebugThreadingEnabled } from "./config.js";
 import { createMomSettingsManager, syncLogToSessionManager } from "./context.js";
 import * as log from "./log.js";
 import { createExecutor, type SandboxConfig } from "./sandbox.js";
@@ -816,8 +816,15 @@ async function createRunner(sandboxConfig: SandboxConfig, channelId: string, cha
 			if (currentMcpMtime !== mcpConfigMtime) {
 				mcpConfigMtime = currentMcpMtime;
 				log.logInfo(`[${channelId}] MCP config changed, reloading extensions`);
-				await session.reload();
-				await session.bindExtensions({});
+				try {
+					await session.reload();
+					await session.bindExtensions({});
+				} catch (err) {
+					log.logWarning(
+						`[${channelId}] MCP reload failed, continuing with previous config`,
+						err instanceof Error ? err.message : String(err),
+					);
+				}
 			} else {
 				// eslint-disable-next-line @typescript-eslint/no-explicit-any -- no public API to update cached prompt
 				(resourceLoader as any).systemPrompt = systemPrompt;
@@ -938,10 +945,29 @@ async function createRunner(sandboxConfig: SandboxConfig, channelId: string, cha
 			};
 			await writeFile(join(channelDir, "last_prompt.jsonl"), JSON.stringify(debugContext, null, 2));
 
-			await session.prompt(userMessage, imageAttachments.length > 0 ? { images: imageAttachments } : undefined);
+			// Run with a timeout to prevent hung MCP tools / API calls from blocking the channel forever
+			const runTimeoutMs = getRunTimeout() * 1000;
+			let runTimedOut = false;
+			const runTimer = setTimeout(() => {
+				runTimedOut = true;
+				log.logWarning(`[${channelId}] Run timed out after ${runTimeoutMs / 1000}s, aborting`);
+				session.abort();
+			}, runTimeoutMs);
+
+			try {
+				await session.prompt(userMessage, imageAttachments.length > 0 ? { images: imageAttachments } : undefined);
+			} finally {
+				clearTimeout(runTimer);
+			}
 
 			// Wait for queued messages
 			await queueChain;
+
+			// Handle timeout — override stop reason so the user sees a clear message
+			if (runTimedOut) {
+				runState.stopReason = "error";
+				runState.errorMessage = `Run timed out after ${runTimeoutMs / 1000} seconds. A tool or API call may have hung. Try again or break the task into smaller steps.`;
+			}
 
 			// Handle error case - show error in main message (or thread if debug threading is on)
 			if (runState.stopReason === "error" && runState.errorMessage) {

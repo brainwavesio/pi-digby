@@ -11,6 +11,8 @@ export interface PiConfig {
 	};
 	/** Post tool calls/thinking to thread under bot's message (default: false) */
 	debugThreading?: boolean;
+	/** Maximum time (in seconds) a single run can take before being aborted (default: 600 = 10 minutes) */
+	runTimeout?: number;
 }
 
 // Hot-reload: re-read digby.json at most every 2 minutes, or when mtime changes.
@@ -68,4 +70,10 @@ export function shouldProcessAllMessages(channelId: string): boolean {
 
 export function isDebugThreadingEnabled(): boolean {
 	return loadPiConfig().debugThreading ?? false;
+}
+
+const DEFAULT_RUN_TIMEOUT_S = 600; // 10 minutes
+
+export function getRunTimeout(): number {
+	return loadPiConfig().runTimeout ?? DEFAULT_RUN_TIMEOUT_S;
 }

@@ -333,10 +333,10 @@ const handler: MomHandler = {
 
 		log.logInfo(`[${event.channel}] Starting run: ${event.text.substring(0, 50)}`);
 
-		try {
-			// Create context adapter
-			const ctx = createSlackContext(event, slack, state, isEvent);
+		// Create context adapter outside try so it's available in catch for error reporting
+		const ctx = createSlackContext(event, slack, state, isEvent);
 
+		try {
 			// Run the agent
 			await ctx.setTyping(true);
 			await ctx.setWorking(true);
@@ -352,7 +352,15 @@ const handler: MomHandler = {
 				}
 			}
 		} catch (err) {
-			log.logWarning(`[${event.channel}] Run error`, err instanceof Error ? err.message : String(err));
+			const errMsg = err instanceof Error ? err.message : String(err);
+			log.logWarning(`[${event.channel}] Run error`, errMsg);
+			// Surface the error to Slack so the user knows what happened
+			try {
+				await ctx.setWorking(false);
+				await ctx.respond(`_Sorry, something went wrong: ${errMsg.substring(0, 500)}_`, false);
+			} catch {
+				// Best effort — don't crash if Slack API fails too
+			}
 		} finally {
 			state.running = false;
 		}
