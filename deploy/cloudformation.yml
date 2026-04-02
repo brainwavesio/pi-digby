@@ -396,6 +396,8 @@ Resources:
           Environment:
             - Name: AWS_DEFAULT_REGION
               Value: us-east-1
+            - Name: DD_SITE
+              Value: datadoghq.eu
           Secrets:
             - Name: MOM_SLACK_APP_TOKEN
               ValueFrom: !Sub "${Secret}:MOM_SLACK_APP_TOKEN::"
