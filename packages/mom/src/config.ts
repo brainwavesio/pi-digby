@@ -1,22 +1,22 @@
 import { readFileSync, statSync } from "fs";
 import { join } from "path";
 
-export interface PiConfig {
+export interface DigbyConfig {
 	slack?: {
-		/**
-		 * Channel IDs where all messages are processed (not just @mentions).
-		 * Useful for feed/dump channels where the bot monitors everything.
-		 */
+		/** Channel IDs where all messages are processed (not just @mentions). */
 		processAllMessageChannels?: string[];
 	};
 	/** Post tool calls/thinking to thread under bot's message (default: false) */
 	debugThreading?: boolean;
+	/** Maximum time (seconds) a single run can take before being aborted (default: 600) */
+	runTimeout?: number;
 }
 
 // Hot-reload: re-read digby.json at most every 2 minutes, or when mtime changes.
 const CACHE_TTL_MS = 2 * 60 * 1000;
+const DEFAULT_RUN_TIMEOUT_S = 600;
 
-let cached: PiConfig | null = null;
+let cached: DigbyConfig | null = null;
 let configDir: string | null = null;
 let lastCheckedAt = 0;
 let lastMtime = 0;
@@ -28,44 +28,38 @@ export function initConfig(workingDir: string): void {
 	lastMtime = 0;
 }
 
-export function loadPiConfig(): PiConfig {
+export function loadConfig(): DigbyConfig {
 	if (!configDir) return {};
 
 	const now = Date.now();
-
-	// Only stat the file if cache TTL has expired
 	if (cached && now - lastCheckedAt < CACHE_TTL_MS) {
 		return cached;
 	}
 
 	const configPath = join(configDir, "digby.json");
-
 	try {
 		const mtime = statSync(configPath).mtimeMs;
 		lastCheckedAt = now;
+		if (cached && mtime === lastMtime) return cached;
 
-		// File hasn't changed — keep cached value
-		if (cached && mtime === lastMtime) {
-			return cached;
-		}
-
-		// File changed (or first load) — re-read
-		cached = JSON.parse(readFileSync(configPath, "utf-8")) as PiConfig;
+		cached = JSON.parse(readFileSync(configPath, "utf-8")) as DigbyConfig;
 		lastMtime = mtime;
-	} catch (e) {
-		console.warn(`[config] Failed to load digby.json from ${configDir}: ${e}`);
+	} catch {
 		lastCheckedAt = now;
-		cached = cached ?? {}; // keep stale cache on read error rather than resetting
+		cached = cached ?? {};
 	}
 
 	return cached!;
 }
 
 export function shouldProcessAllMessages(channelId: string): boolean {
-	const config = loadPiConfig();
-	return config.slack?.processAllMessageChannels?.includes(channelId) ?? false;
+	return loadConfig().slack?.processAllMessageChannels?.includes(channelId) ?? false;
 }
 
 export function isDebugThreadingEnabled(): boolean {
-	return loadPiConfig().debugThreading ?? false;
+	return loadConfig().debugThreading ?? false;
+}
+
+export function getRunTimeout(): number {
+	return loadConfig().runTimeout ?? DEFAULT_RUN_TIMEOUT_S;
 }
