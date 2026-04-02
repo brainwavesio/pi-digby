@@ -41,7 +41,7 @@ export class RunContext {
 	private get displayText(): string {
 		const text = this.accumulatedText;
 		if (this.isWorking) {
-			return text ? text + "\n..." : "...";
+			return text ? `${text}\n...` : "...";
 		}
 		return text;
 	}
@@ -49,7 +49,7 @@ export class RunContext {
 	/** Truncate text to the given limit */
 	private truncate(text: string, limit: number): string {
 		if (text.length <= limit) return text;
-		return text.slice(0, limit) + "\n...(truncated)";
+		return `${text.slice(0, limit)}\n...(truncated)`;
 	}
 
 	/** Append text to the accumulated message and post/update in Slack */
@@ -203,9 +203,7 @@ export class RunContext {
 		if (this.resolved) return;
 		this.resolved = true;
 		this.isWorking = false;
-		const errorText = this.accumulatedText
-			? this.accumulatedText + `\n\n:warning: ${error}`
-			: `:warning: ${error}`;
+		const errorText = this.accumulatedText ? `${this.accumulatedText}\n\n:warning: ${error}` : `:warning: ${error}`;
 		this.accumulatedText = errorText;
 		this.enqueueUpdate(async () => {
 			try {

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, appendFileSync, readFileSync } from "fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from "fs";
 import { join } from "path";
 import type { SlackEvent } from "../slack/types.js";
 
@@ -18,7 +18,7 @@ export class ChannelState {
 
 	/** Append a JSON line to log.jsonl */
 	appendLog(entry: object): void {
-		appendFileSync(join(this.channelDir, "log.jsonl"), JSON.stringify(entry) + "\n");
+		appendFileSync(join(this.channelDir, "log.jsonl"), `${JSON.stringify(entry)}\n`);
 	}
 
 	/** Log a user message */

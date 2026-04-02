@@ -13,29 +13,29 @@ import * as log from "../log.js";
  * @returns Combined memory text, or "(no working memory yet)" if empty
  */
 export function loadMemory(channelDir: string): string {
-    const parts: string[] = [];
+	const parts: string[] = [];
 
-    // Read workspace-level memory (shared across all channels)
-    const workspaceMemory = join(channelDir, "..", "MEMORY.md");
-    if (existsSync(workspaceMemory)) {
-        try {
-            const content = readFileSync(workspaceMemory, "utf-8").trim();
-            if (content) parts.push(`### Global Workspace Memory\n${content}`);
-        } catch (error) {
-            log.warn(`Failed to read workspace memory: ${workspaceMemory}: ${error}`);
-        }
-    }
+	// Read workspace-level memory (shared across all channels)
+	const workspaceMemory = join(channelDir, "..", "MEMORY.md");
+	if (existsSync(workspaceMemory)) {
+		try {
+			const content = readFileSync(workspaceMemory, "utf-8").trim();
+			if (content) parts.push(`### Global Workspace Memory\n${content}`);
+		} catch (error) {
+			log.warn(`Failed to read workspace memory: ${workspaceMemory}: ${error}`);
+		}
+	}
 
-    // Read channel-specific memory
-    const channelMemory = join(channelDir, "MEMORY.md");
-    if (existsSync(channelMemory)) {
-        try {
-            const content = readFileSync(channelMemory, "utf-8").trim();
-            if (content) parts.push(`### Channel-Specific Memory\n${content}`);
-        } catch (error) {
-            log.warn(`Failed to read channel memory: ${channelMemory}: ${error}`);
-        }
-    }
+	// Read channel-specific memory
+	const channelMemory = join(channelDir, "MEMORY.md");
+	if (existsSync(channelMemory)) {
+		try {
+			const content = readFileSync(channelMemory, "utf-8").trim();
+			if (content) parts.push(`### Channel-Specific Memory\n${content}`);
+		} catch (error) {
+			log.warn(`Failed to read channel memory: ${channelMemory}: ${error}`);
+		}
+	}
 
-    return parts.length > 0 ? parts.join("\n\n") : "(no working memory yet)";
+	return parts.length > 0 ? parts.join("\n\n") : "(no working memory yet)";
 }

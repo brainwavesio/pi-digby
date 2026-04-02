@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-import { join } from "path";
 import { resolve } from "path";
 import { getOrCreateRunner, shutdownAllRunners } from "./agent/setup.js";
 import { ChannelQueue } from "./channel/queue.js";
@@ -80,13 +79,9 @@ function getChannelRunState(channelId: string): ChannelRunState {
 // Handler
 // ============================================================================
 
-async function handleEvent(event: SlackEvent, client: SlackClient, isEvent?: boolean): Promise<void> {
+async function handleEvent(event: SlackEvent, client: SlackClient, _isEvent?: boolean): Promise<void> {
 	const state = getChannelRunState(event.channel);
-	const runner = await getOrCreateRunner({
-		channelId: event.channel,
-		channelDir: state.channelState.channelDir,
-		workingDir,
-	});
+	const runner = await getOrCreateRunner(event.channel, state.channelState.channelDir, workingDir);
 
 	// Log user message
 	const user = client.getUser(event.user);
@@ -160,11 +155,7 @@ const handler: RouterHandler = {
 		const state = channelStates.get(channelId);
 		if (state?.running) {
 			state.stopRequested = true;
-			const runner = await getOrCreateRunner({
-				channelId,
-				channelDir: state.channelState.channelDir,
-				workingDir,
-			});
+			const runner = await getOrCreateRunner(channelId, state.channelState.channelDir, workingDir);
 			runner.abort();
 			const ts = await client.postMessage(channelId, "_Stopping..._", threadTs);
 			state.stopMessageTs = ts;

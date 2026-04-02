@@ -220,7 +220,14 @@ export class SlackClient {
 			if (!latestTs || parseFloat(ts) > parseFloat(latestTs)) latestTs = ts;
 		}
 
-		type Msg = { user?: string; bot_id?: string; text?: string; ts?: string; subtype?: string; files?: Array<{ name: string }> };
+		type Msg = {
+			user?: string;
+			bot_id?: string;
+			text?: string;
+			ts?: string;
+			subtype?: string;
+			files?: Array<{ name: string }>;
+		};
 		const allMessages: Msg[] = [];
 		let cursor: string | undefined;
 		let pages = 0;
@@ -277,7 +284,9 @@ export class SlackClient {
 		let cursor: string | undefined;
 		do {
 			const result = await this.web.users.list({ limit: 200, cursor });
-			const members = result.members as Array<{ id?: string; name?: string; real_name?: string; deleted?: boolean }> | undefined;
+			const members = result.members as
+				| Array<{ id?: string; name?: string; real_name?: string; deleted?: boolean }>
+				| undefined;
 			if (members) {
 				for (const u of members) {
 					if (u.id && u.name && !u.deleted) {

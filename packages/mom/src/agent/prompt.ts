@@ -7,33 +7,29 @@
 import { formatSkillsForPrompt, type Skill } from "@mariozechner/pi-coding-agent";
 
 export interface PromptOptions {
-    workspacePath: string;
-    channelId: string;
-    memory: string;
-    channels: Array<{ id: string; name: string }>;
-    users: Array<{ id: string; userName: string; displayName: string }>;
-    skills: Skill[];
+	workspacePath: string;
+	channelId: string;
+	memory: string;
+	channels: Array<{ id: string; name: string }>;
+	users: Array<{ id: string; userName: string; displayName: string }>;
+	skills: Skill[];
 }
 
 export function buildSystemPrompt(opts: PromptOptions): string {
-    const { workspacePath, channelId, memory, channels, users, skills } = opts;
-    const channelPath = `${workspacePath}/${channelId}`;
+	const { workspacePath, channelId, memory, channels, users, skills } = opts;
+	const channelPath = `${workspacePath}/${channelId}`;
 
-    // Format channel mappings
-    const channelMappings =
-        channels.length > 0
-            ? channels.map((c) => `${c.id}\t#${c.name}`).join("\n")
-            : "(no channels loaded)";
+	// Format channel mappings
+	const channelMappings =
+		channels.length > 0 ? channels.map((c) => `${c.id}\t#${c.name}`).join("\n") : "(no channels loaded)";
 
-    // Format user mappings
-    const userMappings =
-        users.length > 0
-            ? users.map((u) => `${u.id}\t@${u.userName}\t${u.displayName}`).join("\n")
-            : "(no users loaded)";
+	// Format user mappings
+	const userMappings =
+		users.length > 0 ? users.map((u) => `${u.id}\t@${u.userName}\t${u.displayName}`).join("\n") : "(no users loaded)";
 
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+	const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-    return `You are digby, a Slack bot assistant. Be concise. No emojis.
+	return `You are digby, a Slack bot assistant. Be concise. No emojis.
 
 ## Context
 - For current date/time, use: date
