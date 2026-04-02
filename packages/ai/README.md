@@ -37,7 +37,7 @@ Unified LLM API with automatic model discovery, provider configuration, token an
   - [Environment Variables](#environment-variables-nodejs-only)
   - [Checking Environment Variables](#checking-environment-variables)
 - [OAuth Providers](#oauth-providers)
-  - [Vertex AI (ADC)](#vertex-ai-adc)
+  - [Vertex AI](#vertex-ai)
   - [CLI Login](#cli-login)
   - [Programmatic OAuth](#programmatic-oauth)
   - [Login Flow Example](#login-flow-example)
@@ -519,6 +519,8 @@ Every `AssistantMessage` includes a `stopReason` field that indicates how the ge
 - `"error"` - An error occurred during generation
 - `"aborted"` - Request was cancelled via abort signal
 
+`AssistantMessage` may also include `responseId`, a provider-specific upstream response or message identifier when the underlying API exposes one. Do not assume it is always present across providers.
+
 ## Error Handling
 
 When a request ends with an error (including aborts and tool call validation errors), the streaming API emits an error event:
@@ -627,11 +629,98 @@ The library uses a registry of API implementations. Built-in APIs include:
 - **`google-generative-ai`**: Google Generative AI API (`streamGoogle`, `GoogleOptions`)
 - **`google-gemini-cli`**: Google Cloud Code Assist API (`streamGoogleGeminiCli`, `GoogleGeminiCliOptions`)
 - **`google-vertex`**: Google Vertex AI API (`streamGoogleVertex`, `GoogleVertexOptions`)
+- **`mistral-conversations`**: Mistral Conversations API (`streamMistral`, `MistralOptions`)
 - **`openai-completions`**: OpenAI Chat Completions API (`streamOpenAICompletions`, `OpenAICompletionsOptions`)
 - **`openai-responses`**: OpenAI Responses API (`streamOpenAIResponses`, `OpenAIResponsesOptions`)
 - **`openai-codex-responses`**: OpenAI Codex Responses API (`streamOpenAICodexResponses`, `OpenAICodexResponsesOptions`)
 - **`azure-openai-responses`**: Azure OpenAI Responses API (`streamAzureOpenAIResponses`, `AzureOpenAIResponsesOptions`)
 - **`bedrock-converse-stream`**: Amazon Bedrock Converse API (`streamBedrock`, `BedrockOptions`)
+
+### Faux provider for tests
+
+`registerFauxProvider()` registers a temporary in-memory provider for tests and demos. It is opt-in and not part of the built-in provider set.
+
+```typescript
+import {
+  complete,
+  fauxAssistantMessage,
+  fauxText,
+  fauxThinking,
+  fauxToolCall,
+  registerFauxProvider,
+  stream,
+} from '@mariozechner/pi-ai';
+
+const registration = registerFauxProvider({
+  tokensPerSecond: 50 // optional
+});
+
+const model = registration.getModel();
+const context = {
+  messages: [{ role: 'user', content: 'Summarize package.json and then call echo', timestamp: Date.now() }]
+};
+
+registration.setResponses([
+  fauxAssistantMessage([
+    fauxThinking('Need to inspect package metadata first.'),
+    fauxToolCall('echo', { text: 'package.json' })
+  ], { stopReason: 'toolUse' })
+]);
+
+const first = await complete(model, context, {
+  sessionId: 'session-1',
+  cacheRetention: 'short'
+});
+context.messages.push(first);
+
+context.messages.push({
+  role: 'toolResult',
+  toolCallId: first.content.find((block) => block.type === 'toolCall')!.id,
+  toolName: 'echo',
+  content: [{ type: 'text', text: 'package.json contents here' }],
+  isError: false,
+  timestamp: Date.now()
+});
+
+registration.setResponses([
+  fauxAssistantMessage([
+    fauxThinking('Now I can summarize the tool output.'),
+    fauxText('Here is the summary.')
+  ])
+]);
+
+const s = stream(model, context);
+for await (const event of s) {
+  console.log(event.type);
+}
+
+// Optional: register multiple faux models for model-switching tests
+const multiModel = registerFauxProvider({
+  models: [
+    { id: 'faux-fast', reasoning: false },
+    { id: 'faux-thinker', reasoning: true }
+  ]
+});
+const thinker = multiModel.getModel('faux-thinker');
+
+console.log(thinker?.reasoning);
+console.log(registration.getPendingResponseCount());
+console.log(registration.state.callCount);
+registration.unregister();
+multiModel.unregister();
+```
+
+Notes:
+- Responses are consumed from a queue in request start order.
+- If the queue is empty, the faux provider returns an assistant error message with `errorMessage: "No more faux responses queued"`.
+- Use `registration.setResponses([...])` to replace the remaining queue and `registration.appendResponses([...])` to add more responses.
+- `registration.models` exposes all registered faux models. `registration.getModel()` returns the first one, and `registration.getModel(id)` returns a specific one.
+- Use `fauxAssistantMessage(...)` for scripted assistant replies. Use `fauxText(...)`, `fauxThinking(...)`, and `fauxToolCall(...)` to build content blocks without filling in low-level fields manually.
+- `registration.unregister()` removes the temporary provider from the global API registry.
+- Usage is estimated at roughly 1 token per 4 characters. When `sessionId` is present and `cacheRetention` is not `"none"`, prompt cache reads and writes are simulated automatically.
+- Tool call arguments stream incrementally via `toolcall_delta` chunks.
+- By default, each streamed chunk is emitted on its own microtask. Set `tokensPerSecond` to pace chunk delivery in real time.
+- The intended use is one deterministic scripted flow per registration. If you need independent concurrent flows, register separate faux providers.
 
 ### Providers and Models
 
@@ -639,7 +728,8 @@ A **provider** offers models through a specific API. For example:
 - **Anthropic** models use the `anthropic-messages` API
 - **Google** models use the `google-generative-ai` API
 - **OpenAI** models use the `openai-responses` API
-- **Mistral, xAI, Cerebras, Groq, etc.** models use the `openai-completions` API (OpenAI-compatible)
+- **Mistral** models use the `mistral-conversations` API
+- **xAI, Cerebras, Groq, etc.** models use the `openai-completions` API (OpenAI-compatible)
 
 ### Querying Providers and Models
 
@@ -727,9 +817,32 @@ const response = await stream(ollamaModel, context, {
 });
 ```
 
+Some OpenAI-compatible servers do not understand the `developer` role used for reasoning-capable models. For those providers, set `compat.supportsDeveloperRole` to `false` so the system prompt is sent as a `system` message instead. If the server also does not support `reasoning_effort`, set `compat.supportsReasoningEffort` to `false` too.
+
+This commonly applies to Ollama, vLLM, SGLang, and similar OpenAI-compatible servers. You can set `compat` at the provider level or per model.
+
+```typescript
+const ollamaReasoningModel: Model<'openai-completions'> = {
+  id: 'gpt-oss:20b',
+  name: 'GPT-OSS 20B (Ollama)',
+  api: 'openai-completions',
+  provider: 'ollama',
+  baseUrl: 'http://localhost:11434/v1',
+  reasoning: true,
+  input: ['text'],
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  contextWindow: 131072,
+  maxTokens: 32000,
+  compat: {
+    supportsDeveloperRole: false,
+    supportsReasoningEffort: false,
+  }
+};
+```
+
 ### OpenAI Compatibility Settings
 
-The `openai-completions` API is implemented by many providers with minor differences. By default, the library auto-detects compatibility settings based on `baseUrl` for known providers (Cerebras, xAI, Mistral, Chutes, etc.). For custom proxies or unknown endpoints, you can override these settings via the `compat` field. For `openai-responses` models, the compat field only supports Responses-specific flags.
+The `openai-completions` API is implemented by many providers with minor differences. By default, the library auto-detects compatibility settings based on `baseUrl` for a small set of known OpenAI-compatible providers (Cerebras, xAI, Chutes, DeepSeek, zAi, OpenCode, etc.). For custom proxies or unknown endpoints, you can override these settings via the `compat` field. For `openai-responses` models, the compat field only supports Responses-specific flags.
 
 ```typescript
 interface OpenAICompletionsCompat {
@@ -742,7 +855,6 @@ interface OpenAICompletionsCompat {
   requiresToolResultName?: boolean;  // Whether tool results require the `name` field (default: false)
   requiresAssistantAfterToolResult?: boolean; // Whether tool results must be followed by an assistant message (default: false)
   requiresThinkingAsText?: boolean;  // Whether thinking blocks must be converted to text (default: false)
-  requiresMistralToolIds?: boolean;  // Whether tool call IDs must be normalized to Mistral format (default: false)
   thinkingFormat?: 'openai' | 'zai' | 'qwen'; // Format for reasoning param: 'openai' uses reasoning_effort, 'zai' uses thinking: { type: "enabled" }, 'qwen' uses enable_thinking: boolean (default: openai)
   openRouterRouting?: OpenRouterRouting; // OpenRouter routing preferences (default: {})
   vercelGatewayRouting?: VercelGatewayRouting; // Vercel AI Gateway routing preferences (default: {})
@@ -906,7 +1018,7 @@ In Node.js environments, you can set environment variables to avoid passing API 
 | Azure OpenAI | `AZURE_OPENAI_API_KEY` + `AZURE_OPENAI_BASE_URL` or `AZURE_OPENAI_RESOURCE_NAME` (optional `AZURE_OPENAI_API_VERSION`, `AZURE_OPENAI_DEPLOYMENT_NAME_MAP` like `model=deployment,model2=deployment2`) |
 | Anthropic | `ANTHROPIC_API_KEY` or `ANTHROPIC_OAUTH_TOKEN` |
 | Google | `GEMINI_API_KEY` |
-| Vertex AI | `GOOGLE_CLOUD_PROJECT` (or `GCLOUD_PROJECT`) + `GOOGLE_CLOUD_LOCATION` + ADC |
+| Vertex AI | `GOOGLE_CLOUD_API_KEY` or `GOOGLE_CLOUD_PROJECT` (or `GCLOUD_PROJECT`) + `GOOGLE_CLOUD_LOCATION` + ADC |
 | Mistral | `MISTRAL_API_KEY` |
 | Groq | `GROQ_API_KEY` |
 | Cerebras | `CEREBRAS_API_KEY` |
@@ -974,14 +1086,15 @@ Several providers require OAuth authentication instead of static API keys:
 
 For paid Cloud Code Assist subscriptions, set `GOOGLE_CLOUD_PROJECT` or `GOOGLE_CLOUD_PROJECT_ID` to your project ID.
 
-### Vertex AI (ADC)
+### Vertex AI
 
-Vertex AI models use Application Default Credentials (ADC):
+Vertex AI models support either a Google Cloud API key or Application Default Credentials (ADC):
 
-- **Local development**: Run `gcloud auth application-default login`
-- **CI/Production**: Set `GOOGLE_APPLICATION_CREDENTIALS` to point to a service account JSON key file
+- **API key**: Set `GOOGLE_CLOUD_API_KEY` or pass `apiKey` in the call options.
+- **Local development (ADC)**: Run `gcloud auth application-default login`
+- **CI/Production (ADC)**: Set `GOOGLE_APPLICATION_CREDENTIALS` to point to a service account JSON key file
 
-Also set `GOOGLE_CLOUD_PROJECT` (or `GCLOUD_PROJECT`) and `GOOGLE_CLOUD_LOCATION`. You can also pass `project`/`location` in the call options.
+When using ADC, also set `GOOGLE_CLOUD_PROJECT` (or `GCLOUD_PROJECT`) and `GOOGLE_CLOUD_LOCATION`. You can also pass `project`/`location` in the call options. When using `GOOGLE_CLOUD_API_KEY`, `project` and `location` are not required.
 
 Example:
 
@@ -1002,6 +1115,8 @@ import { getModel, complete } from '@mariozechner/pi-ai';
   const model = getModel('google-vertex', 'gemini-2.5-flash');
   const response = await complete(model, {
     messages: [{ role: 'user', content: 'Hello from Vertex AI' }]
+  }, {
+    apiKey: process.env.GOOGLE_CLOUD_API_KEY,
   });
 
   for (const block of response.content) {
@@ -1132,6 +1247,9 @@ Create a new provider file (for example `amazon-bedrock.ts`) that exports:
 #### 3. API Registry Integration (`src/providers/register-builtins.ts`)
 
 - Register the API with `registerApiProvider()`
+- Add a package subpath export in `package.json` for the provider module (`./dist/providers/<provider>.js`)
+- Add lazy loader wrappers in `src/providers/register-builtins.ts`, do not statically import provider implementation modules there
+- Add any root-level `export type` re-exports in `src/index.ts` that should remain available from `@mariozechner/pi-ai`
 - Add credential detection in `env-api-keys.ts` for the new provider
 - Ensure `streamSimple` handles auth lookup via `getEnvApiKey()` or provider-specific auth
 

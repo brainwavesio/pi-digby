@@ -13,7 +13,7 @@ Sessions are stored as trees where each entry has an `id` and `parentId`. The "l
 | View | Flat list of user messages | Full tree structure |
 | Action | Extracts path to **new session file** | Changes leaf in **same session** |
 | Summary | Never | Optional (user prompted) |
-| Events | `session_before_fork` / `session_fork` | `session_before_tree` / `session_tree` |
+| Events | `session_before_fork` / `session_start` (`reason: "fork"`) | `session_before_tree` / `session_tree` |
 
 ## Tree UI
 
@@ -33,18 +33,30 @@ Sessions are stored as trees where each entry has an `id` and `parentId`. The "l
 | Key | Action |
 |-----|--------|
 | ↑/↓ | Navigate (depth-first order) |
+| ←/→ | Page up/down |
+| Ctrl+←/Ctrl+→ or Alt+←/Alt+→ | Fold/unfold and jump between branch segments |
+| Shift+L | Set or clear a label on the selected node |
+| Shift+T | Toggle label timestamps |
 | Enter | Select node |
 | Escape/Ctrl+C | Cancel |
 | Ctrl+U | Toggle: user messages only |
 | Ctrl+O | Toggle: show all (including custom/label entries) |
+
+`Ctrl+←` or `Alt+←` folds the current node if it is foldable. Foldable nodes are roots and branch segment starts that have visible children. If the current node is not foldable, or is already folded, the selection jumps up to the previous visible branch segment start.
+
+`Ctrl+→` or `Alt+→` unfolds the current node if it is folded. Otherwise, the selection jumps down to the next visible branch segment start, or to the branch end when there is no further branch point.
 
 ### Display
 
 - Height: half terminal height
 - Current leaf marked with `← active`
 - Labels shown inline: `[label-name]`
+- `Shift+T` shows the latest label-change timestamp next to labeled nodes
+- Foldable branch starts show `⊟` in the connector. Folded branches show `⊞`
+- Active path marker `•` appears after the fold indicator when applicable
+- Search and filter changes reset all folds
 - Default filter hides `label` and `custom` entries (shown in Ctrl+O mode)
-- Children sorted by timestamp (oldest first)
+- At each branch point, the active subtree is shown first; other sibling branches are sorted by timestamp (oldest first)
 
 ## Selection Behavior
 
@@ -132,7 +144,7 @@ Flow:
 4. Fire `session_before_tree` event (hook can cancel or provide summary)
 5. Run default summarizer if needed
 6. Switch leaf via `branch()` or `branchWithSummary()`
-7. Update agent: `agent.replaceMessages(sessionManager.buildSessionContext().messages)`
+7. Update agent: `agent.state.messages = sessionManager.buildSessionContext().messages`
 8. Fire `session_tree` event
 9. Notify custom tools via session event
 10. Return result with `editorText` if user message was selected

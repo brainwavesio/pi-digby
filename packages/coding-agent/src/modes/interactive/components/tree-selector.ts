@@ -2,7 +2,7 @@ import {
 	type Component,
 	Container,
 	type Focusable,
-	getEditorKeybindings,
+	getKeybindings,
 	Input,
 	matchesKey,
 	Spacer,
@@ -13,7 +13,7 @@ import {
 import type { SessionTreeNode } from "../../../core/session-manager.js";
 import { theme } from "../theme/theme.js";
 import { DynamicBorder } from "./dynamic-border.js";
-import { keyHint } from "./keybinding-hints.js";
+import { keyHint, keyText } from "./keybinding-hints.js";
 
 /** Gutter info: position (displayIndent where connector was) and whether to show │ */
 interface GutterInfo {
@@ -37,7 +37,7 @@ interface FlatNode {
 }
 
 /** Filter mode for tree display */
-type FilterMode = "default" | "no-tools" | "user-only" | "labeled-only" | "all";
+export type FilterMode = "default" | "no-tools" | "user-only" | "labeled-only" | "all";
 
 /**
  * Tree list component with selection and ASCII art visualization
@@ -58,8 +58,12 @@ class TreeList implements Component {
 	private searchQuery = "";
 	private toolCallMap: Map<string, ToolCallInfo> = new Map();
 	private multipleRoots = false;
+	private showLabelTimestamps = false;
 	private activePathIds: Set<string> = new Set();
+	private visibleParentMap: Map<string, string | null> = new Map();
+	private visibleChildrenMap: Map<string | null, string[]> = new Map();
 	private lastSelectedId: string | null = null;
+	private foldedNodes: Set<string> = new Set();
 
 	public onSelect?: (entryId: string) => void;
 	public onCancel?: () => void;
@@ -70,9 +74,11 @@ class TreeList implements Component {
 		currentLeafId: string | null,
 		maxVisibleLines: number,
 		initialSelectedId?: string,
+		initialFilterMode?: FilterMode,
 	) {
 		this.currentLeafId = currentLeafId;
 		this.maxVisibleLines = maxVisibleLines;
+		this.filterMode = initialFilterMode ?? "default";
 		this.multipleRoots = tree.length > 1;
 		this.flatNodes = this.flattenTree(tree);
 		this.buildActivePath();
@@ -297,7 +303,8 @@ class TreeList implements Component {
 				entry.type === "label" ||
 				entry.type === "custom" ||
 				entry.type === "model_change" ||
-				entry.type === "thinking_level_change";
+				entry.type === "thinking_level_change" ||
+				entry.type === "session_info";
 
 			switch (this.filterMode) {
 				case "user-only":
@@ -332,6 +339,18 @@ class TreeList implements Component {
 
 			return true;
 		});
+
+		// Filter out descendants of folded nodes.
+		if (this.foldedNodes.size > 0) {
+			const skipSet = new Set<string>();
+			for (const flatNode of this.flatNodes) {
+				const { id, parentId } = flatNode.node.entry;
+				if (parentId != null && (this.foldedNodes.has(parentId) || skipSet.has(parentId))) {
+					skipSet.add(id);
+				}
+			}
+			this.filteredNodes = this.filteredNodes.filter((flatNode) => !skipSet.has(flatNode.node.entry.id));
+		}
 
 		// Recalculate visual structure (indent, connectors, gutters) based on visible tree
 		this.recalculateVisualStructure();
@@ -475,6 +494,10 @@ class TreeList implements Component {
 				]);
 			}
 		}
+
+		// Store visible tree maps for ancestor/descendant lookups in navigation
+		this.visibleParentMap = visibleParent;
+		this.visibleChildrenMap = visibleChildren;
 	}
 
 	/** Get searchable text content from a node */
@@ -514,6 +537,10 @@ class TreeList implements Component {
 			case "branch_summary":
 				parts.push("branch summary", entry.summary);
 				break;
+			case "session_info":
+				parts.push("title");
+				if (entry.name) parts.push(entry.name);
+				break;
 			case "model_change":
 				parts.push("model", entry.modelId);
 				break;
@@ -541,28 +568,36 @@ class TreeList implements Component {
 		return this.filteredNodes[this.selectedIndex]?.node;
 	}
 
-	updateNodeLabel(entryId: string, label: string | undefined): void {
+	updateNodeLabel(entryId: string, label: string | undefined, labelTimestamp?: string): void {
 		for (const flatNode of this.flatNodes) {
 			if (flatNode.node.entry.id === entryId) {
 				flatNode.node.label = label;
+				flatNode.node.labelTimestamp = label ? (labelTimestamp ?? new Date().toISOString()) : undefined;
 				break;
 			}
 		}
 	}
 
-	private getFilterLabel(): string {
+	private getStatusLabels(): string {
+		let labels = "";
 		switch (this.filterMode) {
 			case "no-tools":
-				return " [no-tools]";
+				labels += " [no-tools]";
+				break;
 			case "user-only":
-				return " [user]";
+				labels += " [user]";
+				break;
 			case "labeled-only":
-				return " [labeled]";
+				labels += " [labeled]";
+				break;
 			case "all":
-				return " [all]";
-			default:
-				return "";
+				labels += " [all]";
+				break;
 		}
+		if (this.showLabelTimestamps) {
+			labels += " [+label time]";
+		}
+		return labels;
 	}
 
 	render(width: number): string[] {
@@ -570,7 +605,7 @@ class TreeList implements Component {
 
 		if (this.filteredNodes.length === 0) {
 			lines.push(truncateToWidth(theme.fg("muted", "  No entries found"), width));
-			lines.push(truncateToWidth(theme.fg("muted", `  (0/0)${this.getFilterLabel()}`), width));
+			lines.push(truncateToWidth(theme.fg("muted", `  (0/0)${this.getStatusLabels()}`), width));
 			return lines;
 		}
 
@@ -603,6 +638,7 @@ class TreeList implements Component {
 			// Build prefix char by char, placing gutters and connector at their positions
 			const totalChars = displayIndent * 3;
 			const prefixChars: string[] = [];
+			const isFolded = this.foldedNodes.has(entry.id);
 			for (let i = 0; i < totalChars; i++) {
 				const level = Math.floor(i / 3);
 				const posInLevel = i % 3;
@@ -616,11 +652,12 @@ class TreeList implements Component {
 						prefixChars.push(" ");
 					}
 				} else if (connector && level === connectorPosition) {
-					// Connector at this level
+					// Connector at this level, with fold indicator
 					if (posInLevel === 0) {
 						prefixChars.push(flatNode.isLast ? "└" : "├");
 					} else if (posInLevel === 1) {
-						prefixChars.push("─");
+						const foldable = this.isFoldable(entry.id);
+						prefixChars.push(isFolded ? "⊞" : foldable ? "⊟" : "─");
 					} else {
 						prefixChars.push(" ");
 					}
@@ -630,14 +667,22 @@ class TreeList implements Component {
 			}
 			const prefix = prefixChars.join("");
 
+			// Fold marker for nodes without connectors (roots)
+			const showsFoldInConnector = flatNode.showConnector && !flatNode.isVirtualRootChild;
+			const foldMarker = isFolded && !showsFoldInConnector ? theme.fg("accent", "⊞ ") : "";
+
 			// Active path marker - shown right before the entry text
 			const isOnActivePath = this.activePathIds.has(entry.id);
 			const pathMarker = isOnActivePath ? theme.fg("accent", "• ") : "";
 
 			const label = flatNode.node.label ? theme.fg("warning", `[${flatNode.node.label}] `) : "";
+			const labelTimestamp =
+				this.showLabelTimestamps && flatNode.node.label && flatNode.node.labelTimestamp
+					? theme.fg("muted", `${this.formatLabelTimestamp(flatNode.node.labelTimestamp)} `)
+					: "";
 			const content = this.getEntryDisplayText(flatNode.node, isSelected);
 
-			let line = cursor + theme.fg("dim", prefix) + pathMarker + label + content;
+			let line = cursor + theme.fg("dim", prefix) + foldMarker + pathMarker + label + labelTimestamp + content;
 			if (isSelected) {
 				line = theme.bg("selectedBg", line);
 			}
@@ -646,7 +691,7 @@ class TreeList implements Component {
 
 		lines.push(
 			truncateToWidth(
-				theme.fg("muted", `  (${this.selectedIndex + 1}/${this.filteredNodes.length})${this.getFilterLabel()}`),
+				theme.fg("muted", `  (${this.selectedIndex + 1}/${this.filteredNodes.length})${this.getStatusLabels()}`),
 				width,
 			),
 		);
@@ -728,11 +773,41 @@ class TreeList implements Component {
 			case "label":
 				result = theme.fg("dim", `[label: ${entry.label ?? "(cleared)"}]`);
 				break;
+			case "session_info":
+				result = entry.name
+					? [theme.fg("dim", "[title: "), theme.fg("dim", entry.name), theme.fg("dim", "]")].join("")
+					: [theme.fg("dim", "[title: "), theme.italic(theme.fg("dim", "empty")), theme.fg("dim", "]")].join("");
+				break;
 			default:
 				result = "";
 		}
 
 		return isSelected ? theme.bold(result) : result;
+	}
+
+	private formatLabelTimestamp(timestamp: string): string {
+		const date = new Date(timestamp);
+		const now = new Date();
+		const hours = date.getHours().toString().padStart(2, "0");
+		const minutes = date.getMinutes().toString().padStart(2, "0");
+		const time = `${hours}:${minutes}`;
+
+		if (
+			date.getFullYear() === now.getFullYear() &&
+			date.getMonth() === now.getMonth() &&
+			date.getDate() === now.getDate()
+		) {
+			return time;
+		}
+
+		const month = date.getMonth() + 1;
+		const day = date.getDate();
+		if (date.getFullYear() === now.getFullYear()) {
+			return `${month}/${day} ${time}`;
+		}
+
+		const year = date.getFullYear().toString().slice(-2);
+		return `${year}/${month}/${day} ${time}`;
 	}
 
 	private extractContent(content: unknown): string {
@@ -823,25 +898,42 @@ class TreeList implements Component {
 	}
 
 	handleInput(keyData: string): void {
-		const kb = getEditorKeybindings();
-		if (kb.matches(keyData, "selectUp")) {
+		const kb = getKeybindings();
+		if (kb.matches(keyData, "tui.select.up")) {
 			this.selectedIndex = this.selectedIndex === 0 ? this.filteredNodes.length - 1 : this.selectedIndex - 1;
-		} else if (kb.matches(keyData, "selectDown")) {
+		} else if (kb.matches(keyData, "tui.select.down")) {
 			this.selectedIndex = this.selectedIndex === this.filteredNodes.length - 1 ? 0 : this.selectedIndex + 1;
-		} else if (kb.matches(keyData, "cursorLeft")) {
+		} else if (kb.matches(keyData, "app.tree.foldOrUp")) {
+			const currentId = this.filteredNodes[this.selectedIndex]?.node.entry.id;
+			if (currentId && this.isFoldable(currentId) && !this.foldedNodes.has(currentId)) {
+				this.foldedNodes.add(currentId);
+				this.applyFilter();
+			} else {
+				this.selectedIndex = this.findBranchSegmentStart("up");
+			}
+		} else if (kb.matches(keyData, "app.tree.unfoldOrDown")) {
+			const currentId = this.filteredNodes[this.selectedIndex]?.node.entry.id;
+			if (currentId && this.foldedNodes.has(currentId)) {
+				this.foldedNodes.delete(currentId);
+				this.applyFilter();
+			} else {
+				this.selectedIndex = this.findBranchSegmentStart("down");
+			}
+		} else if (kb.matches(keyData, "tui.editor.cursorLeft") || kb.matches(keyData, "tui.select.pageUp")) {
 			// Page up
 			this.selectedIndex = Math.max(0, this.selectedIndex - this.maxVisibleLines);
-		} else if (kb.matches(keyData, "cursorRight")) {
+		} else if (kb.matches(keyData, "tui.editor.cursorRight") || kb.matches(keyData, "tui.select.pageDown")) {
 			// Page down
 			this.selectedIndex = Math.min(this.filteredNodes.length - 1, this.selectedIndex + this.maxVisibleLines);
-		} else if (kb.matches(keyData, "selectConfirm")) {
+		} else if (kb.matches(keyData, "tui.select.confirm")) {
 			const selected = this.filteredNodes[this.selectedIndex];
 			if (selected && this.onSelect) {
 				this.onSelect(selected.node.entry.id);
 			}
-		} else if (kb.matches(keyData, "selectCancel")) {
+		} else if (kb.matches(keyData, "tui.select.cancel")) {
 			if (this.searchQuery) {
 				this.searchQuery = "";
+				this.foldedNodes.clear();
 				this.applyFilter();
 			} else {
 				this.onCancel?.();
@@ -849,45 +941,55 @@ class TreeList implements Component {
 		} else if (matchesKey(keyData, "ctrl+d")) {
 			// Direct filter: default
 			this.filterMode = "default";
+			this.foldedNodes.clear();
 			this.applyFilter();
 		} else if (matchesKey(keyData, "ctrl+t")) {
 			// Toggle filter: no-tools ↔ default
 			this.filterMode = this.filterMode === "no-tools" ? "default" : "no-tools";
+			this.foldedNodes.clear();
 			this.applyFilter();
 		} else if (matchesKey(keyData, "ctrl+u")) {
 			// Toggle filter: user-only ↔ default
 			this.filterMode = this.filterMode === "user-only" ? "default" : "user-only";
+			this.foldedNodes.clear();
 			this.applyFilter();
 		} else if (matchesKey(keyData, "ctrl+l")) {
 			// Toggle filter: labeled-only ↔ default
 			this.filterMode = this.filterMode === "labeled-only" ? "default" : "labeled-only";
+			this.foldedNodes.clear();
 			this.applyFilter();
 		} else if (matchesKey(keyData, "ctrl+a")) {
 			// Toggle filter: all ↔ default
 			this.filterMode = this.filterMode === "all" ? "default" : "all";
+			this.foldedNodes.clear();
 			this.applyFilter();
 		} else if (matchesKey(keyData, "shift+ctrl+o")) {
 			// Cycle filter backwards
 			const modes: FilterMode[] = ["default", "no-tools", "user-only", "labeled-only", "all"];
 			const currentIndex = modes.indexOf(this.filterMode);
 			this.filterMode = modes[(currentIndex - 1 + modes.length) % modes.length];
+			this.foldedNodes.clear();
 			this.applyFilter();
 		} else if (matchesKey(keyData, "ctrl+o")) {
 			// Cycle filter forwards: default → no-tools → user-only → labeled-only → all → default
 			const modes: FilterMode[] = ["default", "no-tools", "user-only", "labeled-only", "all"];
 			const currentIndex = modes.indexOf(this.filterMode);
 			this.filterMode = modes[(currentIndex + 1) % modes.length];
+			this.foldedNodes.clear();
 			this.applyFilter();
-		} else if (kb.matches(keyData, "deleteCharBackward")) {
+		} else if (kb.matches(keyData, "tui.editor.deleteCharBackward")) {
 			if (this.searchQuery.length > 0) {
 				this.searchQuery = this.searchQuery.slice(0, -1);
+				this.foldedNodes.clear();
 				this.applyFilter();
 			}
-		} else if (matchesKey(keyData, "shift+l")) {
+		} else if (kb.matches(keyData, "app.tree.editLabel")) {
 			const selected = this.filteredNodes[this.selectedIndex];
 			if (selected && this.onLabelEdit) {
 				this.onLabelEdit(selected.node.entry.id, selected.node.label);
 			}
+		} else if (kb.matches(keyData, "app.tree.toggleLabelTimestamp")) {
+			this.showLabelTimestamps = !this.showLabelTimestamps;
 		} else {
 			const hasControlChars = [...keyData].some((ch) => {
 				const code = ch.charCodeAt(0);
@@ -895,8 +997,60 @@ class TreeList implements Component {
 			});
 			if (!hasControlChars && keyData.length > 0) {
 				this.searchQuery += keyData;
+				this.foldedNodes.clear();
 				this.applyFilter();
 			}
+		}
+	}
+
+	/**
+	 * Whether a node can be folded. A node is foldable if it has visible children
+	 * and is either a root (no visible parent) or a segment start (visible parent
+	 * has multiple visible children).
+	 */
+	private isFoldable(entryId: string): boolean {
+		const children = this.visibleChildrenMap.get(entryId);
+		if (!children || children.length === 0) return false;
+		const parentId = this.visibleParentMap.get(entryId);
+		if (parentId === null || parentId === undefined) return true;
+		const siblings = this.visibleChildrenMap.get(parentId);
+		return siblings !== undefined && siblings.length > 1;
+	}
+
+	/**
+	 * Find the index of the next branch segment start in the given direction.
+	 * A segment start is the first child of a branch point.
+	 *
+	 * "up" walks the visible parent chain; "down" walks visible children
+	 * (always following the first child).
+	 */
+	private findBranchSegmentStart(direction: "up" | "down"): number {
+		const selectedId = this.filteredNodes[this.selectedIndex]?.node.entry.id;
+		if (!selectedId) return this.selectedIndex;
+
+		const indexByEntryId = new Map(this.filteredNodes.map((node, i) => [node.node.entry.id, i]));
+		let currentId: string = selectedId;
+		if (direction === "down") {
+			while (true) {
+				const children: string[] = this.visibleChildrenMap.get(currentId) ?? [];
+				if (children.length === 0) return indexByEntryId.get(currentId)!;
+				if (children.length > 1) return indexByEntryId.get(children[0])!;
+				currentId = children[0];
+			}
+		}
+
+		// direction === "up"
+		while (true) {
+			const parentId: string | null = this.visibleParentMap.get(currentId) ?? null;
+			if (parentId === null) return indexByEntryId.get(currentId)!;
+			const children = this.visibleChildrenMap.get(parentId) ?? [];
+			if (children.length > 1) {
+				const segmentStart = indexByEntryId.get(currentId)!;
+				if (segmentStart < this.selectedIndex) {
+					return segmentStart;
+				}
+			}
+			currentId = parentId;
 		}
 	}
 }
@@ -952,17 +1106,20 @@ class LabelInput implements Component, Focusable {
 		lines.push(truncateToWidth(`${indent}${theme.fg("muted", "Label (empty to remove):")}`, width));
 		lines.push(...this.input.render(availableWidth).map((line) => truncateToWidth(`${indent}${line}`, width)));
 		lines.push(
-			truncateToWidth(`${indent}${keyHint("selectConfirm", "save")}  ${keyHint("selectCancel", "cancel")}`, width),
+			truncateToWidth(
+				`${indent}${keyHint("tui.select.confirm", "save")}  ${keyHint("tui.select.cancel", "cancel")}`,
+				width,
+			),
 		);
 		return lines;
 	}
 
 	handleInput(keyData: string): void {
-		const kb = getEditorKeybindings();
-		if (kb.matches(keyData, "selectConfirm")) {
+		const kb = getKeybindings();
+		if (kb.matches(keyData, "tui.select.confirm")) {
 			const value = this.input.getValue().trim();
 			this.onSubmit?.(this.entryId, value || undefined);
-		} else if (kb.matches(keyData, "selectCancel")) {
+		} else if (kb.matches(keyData, "tui.select.cancel")) {
 			this.onCancel?.();
 		} else {
 			this.input.handleInput(keyData);
@@ -1001,13 +1158,14 @@ export class TreeSelectorComponent extends Container implements Focusable {
 		onCancel: () => void,
 		onLabelChange?: (entryId: string, label: string | undefined) => void,
 		initialSelectedId?: string,
+		initialFilterMode?: FilterMode,
 	) {
 		super();
 
 		this.onLabelChangeCallback = onLabelChange;
 		const maxVisibleLines = Math.max(5, Math.floor(terminalHeight / 2));
 
-		this.treeList = new TreeList(tree, currentLeafId, maxVisibleLines, initialSelectedId);
+		this.treeList = new TreeList(tree, currentLeafId, maxVisibleLines, initialSelectedId, initialFilterMode);
 		this.treeList.onSelect = onSelect;
 		this.treeList.onCancel = onCancel;
 		this.treeList.onLabelEdit = (entryId, currentLabel) => this.showLabelInput(entryId, currentLabel);
@@ -1022,8 +1180,10 @@ export class TreeSelectorComponent extends Container implements Focusable {
 		this.addChild(new Text(theme.bold("  Session Tree"), 1, 0));
 		this.addChild(
 			new TruncatedText(
-				theme.fg("muted", "  ↑/↓: move. ←/→: page. Shift+L: label. ") +
-					theme.fg("muted", "^D/^T/^U/^L/^A: filters (^O/⇧^O cycle)"),
+				theme.fg(
+					"muted",
+					`  ↑/↓: move. ←/→: page. ^←/^→ or Alt+←/Alt+→: fold/branch. ${keyText("app.tree.editLabel")}: label. ^D/^T/^U/^L/^A: filters (^O/⇧^O cycle). ${keyText("app.tree.toggleLabelTimestamp")}: label time`,
+				),
 				0,
 				0,
 			),

@@ -159,6 +159,7 @@ The `api` field determines which streaming implementation is used:
 | `openai-responses` | OpenAI Responses API |
 | `azure-openai-responses` | Azure OpenAI Responses API |
 | `openai-codex-responses` | OpenAI Codex Responses API |
+| `mistral-conversations` | Mistral SDK Conversations/Chat streaming |
 | `google-generative-ai` | Google Generative AI API |
 | `google-gemini-cli` | Google Cloud Code Assist API |
 | `google-vertex` | Google Vertex AI API |
@@ -180,13 +181,18 @@ models: [{
       high: "default",
       xhigh: "default"
     },
-    maxTokensField: "max_tokens",      // instead of "max_completion_tokens"
-    requiresToolResultName: true,      // tool results need name field
-    requiresMistralToolIds: true,
-    thinkingFormat: "qwen"             // uses enable_thinking: true
-  }
-}]
+      maxTokensField: "max_tokens",      // instead of "max_completion_tokens"
+      requiresToolResultName: true,      // tool results need name field
+      thinkingFormat: "qwen"            // top-level enable_thinking: true
+    }
+  }]
 ```
+
+Use `qwen-chat-template` instead for local Qwen-compatible servers that read `chat_template_kwargs.enable_thinking`.
+
+> Migration note: Mistral moved from `openai-completions` to `mistral-conversations`.
+> Use `mistral-conversations` for native Mistral models.
+> If you intentionally route Mistral-compatible/custom endpoints through `openai-completions`, set `compat` flags explicitly as needed.
 
 ### Auth Header
 
@@ -301,6 +307,7 @@ For providers with non-standard APIs, implement `streamSimple`. Study the existi
 
 **Reference implementations:**
 - [anthropic.ts](https://github.com/badlogic/pi-mono/blob/main/packages/ai/src/providers/anthropic.ts) - Anthropic Messages API
+- [mistral.ts](https://github.com/badlogic/pi-mono/blob/main/packages/ai/src/providers/mistral.ts) - Mistral Conversations API
 - [openai-completions.ts](https://github.com/badlogic/pi-mono/blob/main/packages/ai/src/providers/openai-completions.ts) - OpenAI Chat Completions
 - [openai-responses.ts](https://github.com/badlogic/pi-mono/blob/main/packages/ai/src/providers/openai-responses.ts) - OpenAI Responses API
 - [google.ts](https://github.com/badlogic/pi-mono/blob/main/packages/ai/src/providers/google.ts) - Google Generative AI
@@ -581,8 +588,9 @@ interface ProviderModelConfig {
     requiresToolResultName?: boolean;
     requiresAssistantAfterToolResult?: boolean;
     requiresThinkingAsText?: boolean;
-    requiresMistralToolIds?: boolean;
-    thinkingFormat?: "openai" | "zai" | "qwen";
+    thinkingFormat?: "openai" | "zai" | "qwen" | "qwen-chat-template";
   };
 }
 ```
+
+`qwen` is for DashScope-style top-level `enable_thinking`. Use `qwen-chat-template` for local Qwen-compatible servers that read `chat_template_kwargs.enable_thinking`.

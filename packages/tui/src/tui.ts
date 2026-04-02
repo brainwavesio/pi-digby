@@ -107,6 +107,10 @@ function parseSizeValue(value: SizeValue | undefined, referenceSize: number): nu
 	return undefined;
 }
 
+function isTermuxSession(): boolean {
+	return Boolean(process.env.TERMUX_VERSION);
+}
+
 /**
  * Options for overlay positioning and sizing.
  * Values can be absolute numbers or percentage strings (e.g., "50%").
@@ -145,6 +149,8 @@ export interface OverlayOptions {
 	 * Called each render cycle with current terminal dimensions.
 	 */
 	visible?: (termWidth: number, termHeight: number) => boolean;
+	/** If true, don't capture keyboard focus when shown */
+	nonCapturing?: boolean;
 }
 
 /**
@@ -157,6 +163,12 @@ export interface OverlayHandle {
 	setHidden(hidden: boolean): void;
 	/** Check if overlay is temporarily hidden */
 	isHidden(): boolean;
+	/** Focus this overlay and bring it to the visual front */
+	focus(): void;
+	/** Release focus to the previous target */
+	unfocus(): void;
+	/** Check if this overlay currently has focus */
+	isFocused(): boolean;
 }
 
 /**
@@ -202,6 +214,7 @@ export class TUI extends Container {
 	public terminal: Terminal;
 	private previousLines: string[] = [];
 	private previousWidth = 0;
+	private previousHeight = 0;
 	private focusedComponent: Component | null = null;
 	private inputListeners = new Set<InputListener>();
 
@@ -210,8 +223,6 @@ export class TUI extends Container {
 	private renderRequested = false;
 	private cursorRow = 0; // Logical cursor row (end of rendered content)
 	private hardwareCursorRow = 0; // Actual terminal cursor row (may differ due to IME positioning)
-	private inputBuffer = ""; // Buffer for parsing terminal responses
-	private cellSizeQueryPending = false;
 	private showHardwareCursor = process.env.PI_HARDWARE_CURSOR === "1";
 	private clearOnShrink = process.env.PI_CLEAR_ON_SHRINK === "1"; // Clear empty rows when content shrinks (default: off)
 	private maxLinesRendered = 0; // Track terminal's working area (max lines ever rendered)
@@ -220,11 +231,13 @@ export class TUI extends Container {
 	private stopped = false;
 
 	// Overlay stack for modal components rendered on top of base content
+	private focusOrderCounter = 0;
 	private overlayStack: {
 		component: Component;
 		options?: OverlayOptions;
 		preFocus: Component | null;
 		hidden: boolean;
+		focusOrder: number;
 	}[] = [];
 
 	constructor(terminal: Terminal, showHardwareCursor?: boolean) {
@@ -284,10 +297,16 @@ export class TUI extends Container {
 	 * Returns a handle to control the overlay's visibility.
 	 */
 	showOverlay(component: Component, options?: OverlayOptions): OverlayHandle {
-		const entry = { component, options, preFocus: this.focusedComponent, hidden: false };
+		const entry = {
+			component,
+			options,
+			preFocus: this.focusedComponent,
+			hidden: false,
+			focusOrder: ++this.focusOrderCounter,
+		};
 		this.overlayStack.push(entry);
 		// Only focus if overlay is actually visible
-		if (this.isOverlayVisible(entry)) {
+		if (!options?.nonCapturing && this.isOverlayVisible(entry)) {
 			this.setFocus(component);
 		}
 		this.terminal.hideCursor();
@@ -320,13 +339,29 @@ export class TUI extends Container {
 					}
 				} else {
 					// Restore focus to this overlay when showing (if it's actually visible)
-					if (this.isOverlayVisible(entry)) {
+					if (!options?.nonCapturing && this.isOverlayVisible(entry)) {
+						entry.focusOrder = ++this.focusOrderCounter;
 						this.setFocus(component);
 					}
 				}
 				this.requestRender();
 			},
 			isHidden: () => entry.hidden,
+			focus: () => {
+				if (!this.overlayStack.includes(entry) || !this.isOverlayVisible(entry)) return;
+				if (this.focusedComponent !== component) {
+					this.setFocus(component);
+				}
+				entry.focusOrder = ++this.focusOrderCounter;
+				this.requestRender();
+			},
+			unfocus: () => {
+				if (this.focusedComponent !== component) return;
+				const topVisible = this.getTopmostVisibleOverlay();
+				this.setFocus(topVisible && topVisible !== entry ? topVisible.component : entry.preFocus);
+				this.requestRender();
+			},
+			isFocused: () => this.focusedComponent === component,
 		};
 	}
 
@@ -334,9 +369,11 @@ export class TUI extends Container {
 	hideOverlay(): void {
 		const overlay = this.overlayStack.pop();
 		if (!overlay) return;
-		// Find topmost visible overlay, or fall back to preFocus
-		const topVisible = this.getTopmostVisibleOverlay();
-		this.setFocus(topVisible?.component ?? overlay.preFocus);
+		if (this.focusedComponent === overlay.component) {
+			// Find topmost visible overlay, or fall back to preFocus
+			const topVisible = this.getTopmostVisibleOverlay();
+			this.setFocus(topVisible?.component ?? overlay.preFocus);
+		}
 		if (this.overlayStack.length === 0) this.terminal.hideCursor();
 		this.requestRender();
 	}
@@ -355,9 +392,10 @@ export class TUI extends Container {
 		return true;
 	}
 
-	/** Find the topmost visible overlay, if any */
+	/** Find the topmost visible capturing overlay, if any */
 	private getTopmostVisibleOverlay(): (typeof this.overlayStack)[number] | undefined {
 		for (let i = this.overlayStack.length - 1; i >= 0; i--) {
+			if (this.overlayStack[i].options?.nonCapturing) continue;
 			if (this.isOverlayVisible(this.overlayStack[i])) {
 				return this.overlayStack[i];
 			}
@@ -399,7 +437,6 @@ export class TUI extends Container {
 		}
 		// Query terminal for cell size in pixels: CSI 16 t
 		// Response format: CSI 6 ; height ; width t
-		this.cellSizeQueryPending = true;
 		this.terminal.write("\x1b[16t");
 	}
 
@@ -425,6 +462,7 @@ export class TUI extends Container {
 		if (force) {
 			this.previousLines = [];
 			this.previousWidth = -1; // -1 triggers widthChanged, forcing a full clear
+			this.previousHeight = -1; // -1 triggers heightChanged, forcing a full clear
 			this.cursorRow = 0;
 			this.hardwareCursorRow = 0;
 			this.maxLinesRendered = 0;
@@ -456,12 +494,9 @@ export class TUI extends Container {
 			data = current;
 		}
 
-		// If we're waiting for cell size response, buffer input and parse
-		if (this.cellSizeQueryPending) {
-			this.inputBuffer += data;
-			const filtered = this.parseCellSizeResponse();
-			if (filtered.length === 0) return;
-			data = filtered;
+		// Consume terminal cell size responses without blocking unrelated input.
+		if (this.consumeCellSizeResponse(data)) {
+			return;
 		}
 
 		// Global debug key handler (Shift+Ctrl+D)
@@ -496,46 +531,24 @@ export class TUI extends Container {
 		}
 	}
 
-	private parseCellSizeResponse(): string {
+	private consumeCellSizeResponse(data: string): boolean {
 		// Response format: ESC [ 6 ; height ; width t
-		// Match the response pattern
-		const responsePattern = /\x1b\[6;(\d+);(\d+)t/;
-		const match = this.inputBuffer.match(responsePattern);
-
-		if (match) {
-			const heightPx = parseInt(match[1], 10);
-			const widthPx = parseInt(match[2], 10);
-
-			if (heightPx > 0 && widthPx > 0) {
-				setCellDimensions({ widthPx, heightPx });
-				// Invalidate all components so images re-render with correct dimensions
-				this.invalidate();
-				this.requestRender();
-			}
-
-			// Remove the response from buffer
-			this.inputBuffer = this.inputBuffer.replace(responsePattern, "");
-			this.cellSizeQueryPending = false;
+		const match = data.match(/^\x1b\[6;(\d+);(\d+)t$/);
+		if (!match) {
+			return false;
 		}
 
-		// Check if we have a partial cell size response starting (wait for more data)
-		// Patterns that could be incomplete cell size response: \x1b, \x1b[, \x1b[6, \x1b[6;...(no t yet)
-		const partialCellSizePattern = /\x1b(\[6?;?[\d;]*)?$/;
-		if (partialCellSizePattern.test(this.inputBuffer)) {
-			// Check if it's actually a complete different escape sequence (ends with a letter)
-			// Cell size response ends with 't', Kitty keyboard ends with 'u', arrows end with A-D, etc.
-			const lastChar = this.inputBuffer[this.inputBuffer.length - 1];
-			if (!/[a-zA-Z~]/.test(lastChar)) {
-				// Doesn't end with a terminator, might be incomplete - wait for more
-				return "";
-			}
+		const heightPx = parseInt(match[1], 10);
+		const widthPx = parseInt(match[2], 10);
+		if (heightPx <= 0 || widthPx <= 0) {
+			return true;
 		}
 
-		// No cell size response found, return buffered data as user input
-		const result = this.inputBuffer;
-		this.inputBuffer = "";
-		this.cellSizeQueryPending = false; // Give up waiting
-		return result;
+		setCellDimensions({ widthPx, heightPx });
+		// Invalidate all components so images re-render with correct dimensions.
+		this.invalidate();
+		this.requestRender();
+		return true;
 	}
 
 	/**
@@ -676,7 +689,7 @@ export class TUI extends Container {
 		}
 	}
 
-	/** Composite all overlays into content lines (in stack order, later = on top). */
+	/** Composite all overlays into content lines (sorted by focusOrder, higher = on top). */
 	private compositeOverlays(lines: string[], termWidth: number, termHeight: number): string[] {
 		if (this.overlayStack.length === 0) return lines;
 		const result = [...lines];
@@ -685,10 +698,9 @@ export class TUI extends Container {
 		const rendered: { overlayLines: string[]; row: number; col: number; w: number }[] = [];
 		let minLinesNeeded = result.length;
 
-		for (const entry of this.overlayStack) {
-			// Skip invisible overlays (hidden or visible() returns false)
-			if (!this.isOverlayVisible(entry)) continue;
-
+		const visibleEntries = this.overlayStack.filter((e) => this.isOverlayVisible(e));
+		visibleEntries.sort((a, b) => a.focusOrder - b.focusOrder);
+		for (const entry of visibleEntries) {
 			const { component, options } = entry;
 
 			// Get layout with height=0 first to determine width and maxHeight
@@ -710,9 +722,10 @@ export class TUI extends Container {
 			minLinesNeeded = Math.max(minLinesNeeded, row + overlayLines.length);
 		}
 
-		// Ensure result covers the terminal working area to keep overlay positioning stable across resizes.
-		// maxLinesRendered can exceed current content length after a shrink; pad to keep viewportStart consistent.
-		const workingHeight = Math.max(this.maxLinesRendered, minLinesNeeded);
+		// Pad to at least terminal height so overlays have screen-relative positions.
+		// Excludes maxLinesRendered: the historical high-water mark caused self-reinforcing
+		// inflation that pushed content into scrollback on terminal widen.
+		const workingHeight = Math.max(result.length, termHeight, minLinesNeeded);
 
 		// Extend result with empty lines if content is too short for overlay placement or working area
 		while (result.length < workingHeight) {
@@ -720,9 +733,6 @@ export class TUI extends Container {
 		}
 
 		const viewportStart = Math.max(0, workingHeight - termHeight);
-
-		// Track which lines were modified for final verification
-		const modifiedLines = new Set<number>();
 
 		// Composite each overlay
 		for (const { overlayLines, row, col, w } of rendered) {
@@ -734,19 +744,7 @@ export class TUI extends Container {
 					const truncatedOverlayLine =
 						visibleWidth(overlayLines[i]) > w ? sliceByColumn(overlayLines[i], 0, w, true) : overlayLines[i];
 					result[idx] = this.compositeLineAt(result[idx], truncatedOverlayLine, col, w, termWidth);
-					modifiedLines.add(idx);
 				}
-			}
-		}
-
-		// Final verification: ensure no composited line exceeds terminal width
-		// This is a belt-and-suspenders safeguard - compositeLineAt should already
-		// guarantee this, but we verify here to prevent crashes from any edge cases
-		// Only check lines that were actually modified (optimization)
-		for (const idx of modifiedLines) {
-			const lineWidth = visibleWidth(result[idx]);
-			if (lineWidth > termWidth) {
-				result[idx] = sliceByColumn(result[idx], 0, termWidth, true);
 			}
 		}
 
@@ -849,8 +847,11 @@ export class TUI extends Container {
 		if (this.stopped) return;
 		const width = this.terminal.columns;
 		const height = this.terminal.rows;
-		let viewportTop = Math.max(0, this.maxLinesRendered - height);
-		let prevViewportTop = this.previousViewportTop;
+		const widthChanged = this.previousWidth !== 0 && this.previousWidth !== width;
+		const heightChanged = this.previousHeight !== 0 && this.previousHeight !== height;
+		const previousBufferLength = this.previousHeight > 0 ? this.previousViewportTop + this.previousHeight : height;
+		let prevViewportTop = heightChanged ? Math.max(0, previousBufferLength - height) : this.previousViewportTop;
+		let viewportTop = prevViewportTop;
 		let hardwareCursorRow = this.hardwareCursorRow;
 		const computeLineDiff = (targetRow: number): number => {
 			const currentScreenRow = hardwareCursorRow - prevViewportTop;
@@ -871,14 +872,11 @@ export class TUI extends Container {
 
 		newLines = this.applyLineResets(newLines);
 
-		// Width changed - need full re-render (line wrapping changes)
-		const widthChanged = this.previousWidth !== 0 && this.previousWidth !== width;
-
 		// Helper to clear scrollback and viewport and render all new lines
 		const fullRender = (clear: boolean): void => {
 			this.fullRedrawCount += 1;
 			let buffer = "\x1b[?2026h"; // Begin synchronized output
-			if (clear) buffer += "\x1b[3J\x1b[2J\x1b[H"; // Clear scrollback, screen, and home
+			if (clear) buffer += "\x1b[2J\x1b[H\x1b[3J"; // Clear screen, home, then clear scrollback
 			for (let i = 0; i < newLines.length; i++) {
 				if (i > 0) buffer += "\r\n";
 				buffer += newLines[i];
@@ -893,10 +891,12 @@ export class TUI extends Container {
 			} else {
 				this.maxLinesRendered = Math.max(this.maxLinesRendered, newLines.length);
 			}
-			this.previousViewportTop = Math.max(0, this.maxLinesRendered - height);
+			const bufferLength = Math.max(height, newLines.length);
+			this.previousViewportTop = Math.max(0, bufferLength - height);
 			this.positionHardwareCursor(cursorPos, newLines.length);
 			this.previousLines = newLines;
 			this.previousWidth = width;
+			this.previousHeight = height;
 		};
 
 		const debugRedraw = process.env.PI_DEBUG_REDRAW === "1";
@@ -908,15 +908,24 @@ export class TUI extends Container {
 		};
 
 		// First render - just output everything without clearing (assumes clean screen)
-		if (this.previousLines.length === 0 && !widthChanged) {
+		if (this.previousLines.length === 0 && !widthChanged && !heightChanged) {
 			logRedraw("first render");
 			fullRender(false);
 			return;
 		}
 
-		// Width changed - full re-render (line wrapping changes)
+		// Width changes always need a full re-render because wrapping changes.
 		if (widthChanged) {
-			logRedraw(`width changed (${this.previousWidth} -> ${width})`);
+			logRedraw(`terminal width changed (${this.previousWidth} -> ${width})`);
+			fullRender(true);
+			return;
+		}
+
+		// Height changes normally need a full re-render to keep the visible viewport aligned,
+		// but Termux changes height when the software keyboard shows or hides.
+		// In that environment, a full redraw causes the entire history to replay on every toggle.
+		if (heightChanged && !isTermuxSession()) {
+			logRedraw(`terminal height changed (${this.previousHeight} -> ${height})`);
 			fullRender(true);
 			return;
 		}
@@ -957,7 +966,8 @@ export class TUI extends Container {
 		// No changes - but still need to update hardware cursor position if it moved
 		if (firstChanged === -1) {
 			this.positionHardwareCursor(cursorPos, newLines.length);
-			this.previousViewportTop = Math.max(0, this.maxLinesRendered - height);
+			this.previousViewportTop = prevViewportTop;
+			this.previousHeight = height;
 			return;
 		}
 
@@ -967,6 +977,11 @@ export class TUI extends Container {
 				let buffer = "\x1b[?2026h";
 				// Move to end of new content (clamp to 0 for empty content)
 				const targetRow = Math.max(0, newLines.length - 1);
+				if (targetRow < prevViewportTop) {
+					logRedraw(`deleted lines moved viewport up (${targetRow} < ${prevViewportTop})`);
+					fullRender(true);
+					return;
+				}
 				const lineDiff = computeLineDiff(targetRow);
 				if (lineDiff > 0) buffer += `\x1b[${lineDiff}B`;
 				else if (lineDiff < 0) buffer += `\x1b[${-lineDiff}A`;
@@ -996,16 +1011,15 @@ export class TUI extends Container {
 			this.positionHardwareCursor(cursorPos, newLines.length);
 			this.previousLines = newLines;
 			this.previousWidth = width;
-			this.previousViewportTop = Math.max(0, this.maxLinesRendered - height);
+			this.previousHeight = height;
+			this.previousViewportTop = prevViewportTop;
 			return;
 		}
 
-		// Check if firstChanged is above what was previously visible
-		// Use previousLines.length (not maxLinesRendered) to avoid false positives after content shrinks
-		const previousContentViewportTop = Math.max(0, this.previousLines.length - height);
-		if (firstChanged < previousContentViewportTop) {
-			// First change is above previous viewport - need full re-render
-			logRedraw(`firstChanged < viewportTop (${firstChanged} < ${previousContentViewportTop})`);
+		// Differential rendering can only touch what was actually visible.
+		// If the first changed line is above the previous viewport, we need a full redraw.
+		if (firstChanged < prevViewportTop) {
+			logRedraw(`firstChanged < viewportTop (${firstChanged} < ${prevViewportTop})`);
 			fullRender(true);
 			return;
 		}
@@ -1137,13 +1151,14 @@ export class TUI extends Container {
 		this.hardwareCursorRow = finalCursorRow;
 		// Track terminal's working area (grows but doesn't shrink unless cleared)
 		this.maxLinesRendered = Math.max(this.maxLinesRendered, newLines.length);
-		this.previousViewportTop = Math.max(0, this.maxLinesRendered - height);
+		this.previousViewportTop = Math.max(prevViewportTop, finalCursorRow - height + 1);
 
 		// Position hardware cursor for IME
 		this.positionHardwareCursor(cursorPos, newLines.length);
 
 		this.previousLines = newLines;
 		this.previousWidth = width;
+		this.previousHeight = height;
 	}
 
 	/**

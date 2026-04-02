@@ -11,10 +11,15 @@ export {
 	type PromptOptions,
 	type SessionStats,
 } from "./agent-session.js";
+export {
+	type AgentSessionRuntimeBootstrap,
+	AgentSessionRuntimeHost,
+	type CreateAgentSessionRuntimeOptions,
+	createAgentSessionRuntime,
+} from "./agent-session-runtime.js";
 export { type BashExecutorOptions, type BashResult, executeBash, executeBashWithOperations } from "./bash-executor.js";
 export type { CompactionResult } from "./compaction/index.js";
 export { createEventBus, type EventBus, type EventBusController } from "./event-bus.js";
-
 // Extensions system
 export {
 	type AgentEndEvent,
@@ -23,6 +28,7 @@ export {
 	type AgentToolUpdateCallback,
 	type BeforeAgentStartEvent,
 	type ContextEvent,
+	defineTool,
 	discoverAndLoadExtensions,
 	type ExecOptions,
 	type ExecResult,
@@ -46,16 +52,15 @@ export {
 	type SessionBeforeSwitchEvent,
 	type SessionBeforeTreeEvent,
 	type SessionCompactEvent,
-	type SessionForkEvent,
 	type SessionShutdownEvent,
 	type SessionStartEvent,
-	type SessionSwitchEvent,
 	type SessionTreeEvent,
 	type ToolCallEvent,
+	type ToolCallEventResult,
 	type ToolDefinition,
 	type ToolRenderResultOptions,
 	type ToolResultEvent,
 	type TurnEndEvent,
 	type TurnStartEvent,
-	wrapToolsWithExtensions,
 } from "./extensions/index.js";
+export { createSyntheticSourceInfo } from "./source-info.js";

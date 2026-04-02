@@ -1,6 +1,7 @@
 import {
 	BedrockRuntimeClient,
 	type BedrockRuntimeClientConfig,
+	BedrockRuntimeServiceException,
 	StopReason as BedrockStopReason,
 	type Tool as BedrockTool,
 	CachePointType,
@@ -55,6 +56,11 @@ export interface BedrockOptions extends StreamOptions {
 	thinkingBudgets?: ThinkingBudgets;
 	/* Only supported by Claude 4.x models, see https://docs.aws.amazon.com/bedrock/latest/userguide/claude-messages-extended-thinking.html#claude-messages-extended-thinking-tool-use-interleaved */
 	interleavedThinking?: boolean;
+	/** Key-value pairs attached to the inference request for cost allocation tagging.
+	 * Keys: max 64 chars, no `aws:` prefix. Values: max 256 chars. Max 50 pairs.
+	 * Tags appear in AWS Cost Explorer split cost allocation data.
+	 * @see https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ConverseStream.html */
+	requestMetadata?: Record<string, string>;
 }
 
 type Block = (TextContent | ThinkingContent | ToolCall) & { index?: number; partialJson?: string };
@@ -146,15 +152,19 @@ export const streamBedrock: StreamFunction<"bedrock-converse-stream", BedrockOpt
 			const client = new BedrockRuntimeClient(config);
 
 			const cacheRetention = resolveCacheRetention(options.cacheRetention);
-			const commandInput = {
+			let commandInput = {
 				modelId: model.id,
 				messages: convertMessages(context, model, cacheRetention),
 				system: buildSystemPrompt(context.systemPrompt, model, cacheRetention),
 				inferenceConfig: { maxTokens: options.maxTokens, temperature: options.temperature },
 				toolConfig: convertToolConfig(context.tools, options.toolChoice),
 				additionalModelRequestFields: buildAdditionalModelRequestFields(model, options),
+				...(options.requestMetadata !== undefined && { requestMetadata: options.requestMetadata }),
 			};
-			options?.onPayload?.(commandInput);
+			const nextCommandInput = await options?.onPayload?.(commandInput, model);
+			if (nextCommandInput !== undefined) {
+				commandInput = nextCommandInput as typeof commandInput;
+			}
 			const command = new ConverseStreamCommand(commandInput);
 
 			const response = await client.send(command, { abortSignal: options.signal });
@@ -176,15 +186,15 @@ export const streamBedrock: StreamFunction<"bedrock-converse-stream", BedrockOpt
 				} else if (item.metadata) {
 					handleMetadata(item.metadata, model, output);
 				} else if (item.internalServerException) {
-					throw new Error(`Internal server error: ${item.internalServerException.message}`);
+					throw item.internalServerException;
 				} else if (item.modelStreamErrorException) {
-					throw new Error(`Model stream error: ${item.modelStreamErrorException.message}`);
+					throw item.modelStreamErrorException;
 				} else if (item.validationException) {
-					throw new Error(`Validation error: ${item.validationException.message}`);
+					throw item.validationException;
 				} else if (item.throttlingException) {
-					throw new Error(`Throttling error: ${item.throttlingException.message}`);
+					throw item.throttlingException;
 				} else if (item.serviceUnavailableException) {
-					throw new Error(`Service unavailable: ${item.serviceUnavailableException.message}`);
+					throw item.serviceUnavailableException;
 				}
 			}
 
@@ -204,7 +214,7 @@ export const streamBedrock: StreamFunction<"bedrock-converse-stream", BedrockOpt
 				delete (block as Block).partialJson;
 			}
 			output.stopReason = options.signal?.aborted ? "aborted" : "error";
-			output.errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
+			output.errorMessage = formatBedrockError(error);
 			stream.push({ type: "error", reason: output.stopReason, error: output });
 			stream.end();
 		}
@@ -212,6 +222,36 @@ export const streamBedrock: StreamFunction<"bedrock-converse-stream", BedrockOpt
 
 	return stream;
 };
+
+/**
+ * Human-readable prefixes for Bedrock SDK exception names.
+ * The downstream retry logic in agent-session matches patterns like
+ * `server.?error` and `service.?unavailable`, so we preserve the legacy
+ * prefix format rather than using the raw SDK exception name.
+ */
+const BEDROCK_ERROR_PREFIXES: Record<string, string> = {
+	InternalServerException: "Internal server error",
+	ModelStreamErrorException: "Model stream error",
+	ValidationException: "Validation error",
+	ThrottlingException: "Throttling error",
+	ServiceUnavailableException: "Service unavailable",
+};
+
+/**
+ * Format a Bedrock error with a human-readable prefix.
+ * AWS SDK exceptions (both from `client.send()` and from stream event items)
+ * extend BedrockRuntimeServiceException. We map the `.name` to a stable
+ * human-readable prefix so downstream consumers (retry logic, context-overflow
+ * detection) can distinguish error categories via simple string matching.
+ */
+function formatBedrockError(error: unknown): string {
+	const message = error instanceof Error ? error.message : JSON.stringify(error);
+	if (error instanceof BedrockRuntimeServiceException) {
+		const prefix = BEDROCK_ERROR_PREFIXES[error.name] ?? error.name;
+		return `${prefix}: ${message}`;
+	}
+	return message;
+}
 
 export const streamSimpleBedrock: StreamFunction<"bedrock-converse-stream", SimpleStreamOptions> = (
 	model: Model<"bedrock-converse-stream">,
@@ -427,15 +467,24 @@ function resolveCacheRetention(cacheRetention?: CacheRetention): CacheRetention 
 /**
  * Check if the model supports prompt caching.
  * Supported: Claude 3.5 Haiku, Claude 3.7 Sonnet, Claude 4.x models
+ *
+ * For base models and system-defined inference profiles the model ID / ARN
+ * contains the model name, so we can decide locally.
+ *
+ * For application inference profiles (whose ARNs don't contain the model name),
+ * set AWS_BEDROCK_FORCE_CACHE=1 to enable cache points.  Amazon Nova models
+ * have automatic caching and don't need explicit cache points.
  */
 function supportsPromptCaching(model: Model<"bedrock-converse-stream">): boolean {
-	if (model.cost.cacheRead || model.cost.cacheWrite) {
-		return true;
-	}
-
 	const id = model.id.toLowerCase();
+	if (!id.includes("claude")) {
+		// Application inference profiles don't contain the model name in the ARN.
+		// Allow users to force cache points via environment variable.
+		if (typeof process !== "undefined" && process.env.AWS_BEDROCK_FORCE_CACHE === "1") return true;
+		return false;
+	}
 	// Claude 4.x models (opus-4, sonnet-4, haiku-4)
-	if (id.includes("claude") && (id.includes("-4-") || id.includes("-4."))) return true;
+	if (id.includes("-4-") || id.includes("-4.")) return true;
 	// Claude 3.7 Sonnet
 	if (id.includes("claude-3-7-sonnet")) return true;
 	// Claude 3.5 Haiku
@@ -534,11 +583,21 @@ function convertMessages(
 							// For other models, we omit the signature to avoid errors like:
 							// "This model doesn't support the reasoningContent.reasoningText.signature field"
 							if (supportsThinkingSignature(model)) {
-								contentBlocks.push({
-									reasoningContent: {
-										reasoningText: { text: sanitizeSurrogates(c.thinking), signature: c.thinkingSignature },
-									},
-								});
+								// Signatures arrive after thinking deltas. If a partial or externally
+								// persisted message lacks a signature, Bedrock rejects the replayed
+								// reasoning block. Fall back to plain text, matching Anthropic.
+								if (!c.thinkingSignature || c.thinkingSignature.trim().length === 0) {
+									contentBlocks.push({ text: sanitizeSurrogates(c.thinking) });
+								} else {
+									contentBlocks.push({
+										reasoningContent: {
+											reasoningText: {
+												text: sanitizeSurrogates(c.thinking),
+												signature: c.thinkingSignature,
+											},
+										},
+									});
+								}
 							} else {
 								contentBlocks.push({
 									reasoningContent: {
