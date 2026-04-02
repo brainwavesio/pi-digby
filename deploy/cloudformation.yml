@@ -439,7 +439,7 @@ Resources:
       ServiceName: pi-digby
       Cluster: !Ref ECSCluster
       TaskDefinition: !Ref TaskDefinition
-      DesiredCount: 1
+      DesiredCount: 0
       LaunchType: FARGATE
       PlatformVersion: LATEST
       EnableExecuteCommand: true
