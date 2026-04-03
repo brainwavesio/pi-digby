@@ -496,10 +496,7 @@ Resources:
               ValueFrom: !Sub "${Secret}:MOM_SLACK_APP_TOKEN::"
             - Name: MOM_SLACK_BOT_TOKEN
               ValueFrom: !Sub "${Secret}:MOM_SLACK_BOT_TOKEN::"
-            - Name: AWS_ACCESS_KEY_ID
-              ValueFrom: !Sub "${Secret}:AWS_ACCESS_KEY_ID::"
-            - Name: AWS_SECRET_ACCESS_KEY
-              ValueFrom: !Sub "${Secret}:AWS_SECRET_ACCESS_KEY::"
+            # AWS credentials provided by ECS task role (pi-digby-task) — no IAM user needed
             - Name: BROWSER_USE_API_KEY
               ValueFrom: !Sub "${Secret}:BROWSER_USE_API_KEY::"
             - Name: EXA_API_KEY
@@ -534,7 +531,7 @@ Resources:
       ServiceName: pi-digby
       Cluster: !Ref ECSCluster
       TaskDefinition: !Ref TaskDefinition
-      DesiredCount: 0  # Set to 1 after first image push
+      DesiredCount: 1
       LaunchType: FARGATE
       PlatformVersion: LATEST
       EnableExecuteCommand: true

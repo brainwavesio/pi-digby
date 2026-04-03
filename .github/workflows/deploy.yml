@@ -11,6 +11,10 @@ env:
   ECS_CLUSTER: pi-digby
   ECS_SERVICE: pi-digby
 
+concurrency:
+  group: deploy
+  cancel-in-progress: true
+
 permissions:
   id-token: write
   contents: read

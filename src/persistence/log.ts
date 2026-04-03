@@ -86,8 +86,8 @@ export function syncLogToContext(
 			// Skip the current message being processed (will be added via prompt())
 			if (slackTs === currentTs) continue;
 
-			// Skip bot messages — those are added through the agent flow
-			if (logMsg.isBot) continue;
+			// Skip Digby's own messages — those are added through the agent flow
+			if (logMsg.isBot && logMsg.user === "bot") continue;
 
 			// Build the message text as it would appear in context
 			const messageText = `[${logMsg.userName || logMsg.user || "unknown"}]: ${logMsg.text || ""}`;

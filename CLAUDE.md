@@ -53,10 +53,10 @@ Push to `main` triggers `.github/workflows/deploy.yml` â†’ builds Docker image â
 |--------|---------|
 | `MOM_SLACK_APP_TOKEN` | Slack app-level token (Socket Mode) |
 | `MOM_SLACK_BOT_TOKEN` | Slack bot OAuth token |
-| `AWS_ACCESS_KEY_ID` | Bedrock credentials |
-| `AWS_SECRET_ACCESS_KEY` | Bedrock credentials |
 | `BROWSER_USE_API_KEY` | browser-use CLI (cloud mode) |
 | `EXA_API_KEY` | Exa search MCP server |
+
+> **Note:** Bedrock auth uses the ECS task role (`pi-digby-task`), not IAM user credentials.
 
 ## Upstream dependencies
 
