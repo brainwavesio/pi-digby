@@ -9,7 +9,7 @@ export interface SlackClientLike {
 	updateMessage(channel: string, ts: string, text: string): Promise<void>;
 	deleteMessage(channel: string, ts: string): Promise<void>;
 	addReaction(channel: string, ts: string, emoji: string): Promise<void>;
-	uploadFile(channel: string, filePath: string, title?: string): Promise<void>;
+	uploadFile(channel: string, filePath: string, title?: string, threadTs?: string): Promise<void>;
 }
 
 /**
@@ -155,7 +155,12 @@ export class RunContext {
 	uploadFile(filePath: string, title?: string): void {
 		this.enqueueUpdate(async () => {
 			try {
-				await this.client.uploadFile(this.channel, filePath, title);
+				await this.client.uploadFile(
+					this.channel,
+					filePath,
+					title,
+					this.replyThreadTs || this.messageTs || undefined,
+				);
 			} catch (err) {
 				log.warn("[run-context] uploadFile error", err instanceof Error ? err.message : String(err));
 			}
