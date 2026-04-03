@@ -10,6 +10,8 @@ export interface RouterHandler {
 	handleEvent(event: SlackEvent, isEvent?: boolean): Promise<void>;
 	/** Handle stop command */
 	handleStop(channelId: string, threadTs?: string): Promise<void>;
+	/** Log a message to log.jsonl without triggering a run */
+	logMessage(event: SlackEvent): void;
 }
 
 /**
@@ -88,8 +90,11 @@ export function setupRouter(client: SlackClient, handler: RouterHandler, startup
 			threadTs: e.thread_ts,
 		};
 
-		// Determine if we should trigger processing
-		if (!isDm && !isAlwaysChannel && !isChannelThread) return;
+		// Non-triggering channel messages — log but don't process
+		if (!isDm && !isAlwaysChannel && !isChannelThread) {
+			handler.logMessage(slackEvent);
+			return;
+		}
 
 		// Skip old messages
 		if (e.ts < startupTs) return;
@@ -99,12 +104,19 @@ export function setupRouter(client: SlackClient, handler: RouterHandler, startup
 			const text = e.text || "";
 			const botMentioned = !!botUserId && text.includes(`<@${botUserId}>`);
 			const anyMention = /<@[A-Z0-9]+>/i.test(text);
-			if (!botMentioned && anyMention) return;
+			if (!botMentioned && anyMention) {
+				handler.logMessage(slackEvent);
+				return;
+			}
 
 			client
 				.isBotThread(e.channel, e.thread_ts!)
 				.then((owned) => {
-					if (owned) processOrBusy(client, handler, slackEvent, e.channel);
+					if (owned) {
+						processOrBusy(client, handler, slackEvent, e.channel);
+					} else {
+						handler.logMessage(slackEvent);
+					}
 				})
 				.catch(() => {
 					// Ignore lookup errors — thread messages are best-effort
@@ -119,8 +131,9 @@ export function setupRouter(client: SlackClient, handler: RouterHandler, startup
 function processOrBusy(client: SlackClient, handler: RouterHandler, event: SlackEvent, channel: string): void {
 	const text = event.text.toLowerCase().trim();
 
-	// Stop command — execute immediately, don't queue
+	// Stop command — log and execute immediately, don't queue
 	if (text === "stop") {
+		handler.logMessage(event);
 		if (handler.isRunning(channel)) {
 			handler.handleStop(channel, event.threadTs).catch((err) => {
 				log.warn(`Stop handler error [${channel}]`, err instanceof Error ? err.message : String(err));
@@ -133,8 +146,9 @@ function processOrBusy(client: SlackClient, handler: RouterHandler, event: Slack
 		return;
 	}
 
-	// Check if busy
+	// Check if busy — log the message even though we can't process it
 	if (handler.isRunning(channel)) {
+		handler.logMessage(event);
 		const busyMsg =
 			event.type === "mention"
 				? "_Still thinking. Say `@digby stop` to cancel._"

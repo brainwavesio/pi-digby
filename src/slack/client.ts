@@ -58,9 +58,12 @@ export class SlackClient {
 	// Dedup in-flight lookups
 	private botThreadPending = new Map<string, Promise<boolean>>();
 
+	private botToken: string;
+
 	constructor(config: { appToken: string; botToken: string }) {
 		this.socket = new SocketModeClient({ appToken: config.appToken });
 		this.web = new WebClient(config.botToken);
+		this.botToken = config.botToken;
 	}
 
 	// ==========================================================================
@@ -134,13 +137,25 @@ export class SlackClient {
 		}
 	}
 
-	async uploadFile(channel: string, filePath: string, title?: string): Promise<void> {
+	async uploadFile(channel: string, filePath: string, title?: string, threadTs?: string): Promise<void> {
 		const fileName = title || basename(filePath);
 		const fileContent = readFileSync(filePath);
-		await withRetry(
-			() => this.web.files.uploadV2({ channel_id: channel, file: fileContent, filename: fileName, title: fileName }),
-			"uploadFile",
-		);
+		const args = threadTs
+			? { channels: channel, file: fileContent, filename: fileName, title: fileName, thread_ts: threadTs }
+			: { channel_id: channel, file: fileContent, filename: fileName, title: fileName };
+		await withRetry(() => this.web.files.uploadV2(args as any), "uploadFile");
+	}
+
+	async downloadFile(url: string): Promise<Buffer> {
+		return withRetry(async () => {
+			const response = await fetch(url, {
+				headers: { Authorization: `Bearer ${this.botToken}` },
+			});
+			if (!response.ok) {
+				throw new Error(`Download failed: ${response.status} ${response.statusText}`);
+			}
+			return Buffer.from(await response.arrayBuffer());
+		}, "downloadFile");
 	}
 
 	// ==========================================================================

@@ -9,7 +9,7 @@ export interface SlackClientLike {
 	updateMessage(channel: string, ts: string, text: string): Promise<void>;
 	deleteMessage(channel: string, ts: string): Promise<void>;
 	addReaction(channel: string, ts: string, emoji: string): Promise<void>;
-	uploadFile(channel: string, filePath: string, title?: string): Promise<void>;
+	uploadFile(channel: string, filePath: string, title?: string, threadTs?: string): Promise<void>;
 }
 
 /**
@@ -31,6 +31,7 @@ export class RunContext {
 	private accumulatedText = "";
 	private streaming = true;
 	private resolved = false;
+	private deleted = false;
 	private threadMessageTs: string[] = [];
 	private updateChain: Promise<void> = Promise.resolve();
 
@@ -155,7 +156,12 @@ export class RunContext {
 	uploadFile(filePath: string, title?: string): void {
 		this.enqueueUpdate(async () => {
 			try {
-				await this.client.uploadFile(this.channel, filePath, title);
+				await this.client.uploadFile(
+					this.channel,
+					filePath,
+					title,
+					this.replyThreadTs || this.messageTs || undefined,
+				);
 			} catch (err) {
 				log.warn("[run-context] uploadFile error", err instanceof Error ? err.message : String(err));
 			}
@@ -179,6 +185,10 @@ export class RunContext {
 		if (this.resolved) return;
 		this.resolved = true;
 		this.streaming = false;
+		// Clear thinking placeholder so error stands alone
+		if (this.accumulatedText === RunContext.THINKING_PLACEHOLDER) {
+			this.accumulatedText = "";
+		}
 		this.accumulatedText = this.accumulatedText
 			? `${this.accumulatedText}\n\n_\u26a0 ${error}_`
 			: `_\u26a0 ${error}_`;
@@ -190,6 +200,7 @@ export class RunContext {
 		if (this.resolved) return;
 		this.resolved = true;
 		this.streaming = false;
+		this.deleted = true;
 		this.enqueueUpdate(async () => {
 			try {
 				for (const ts of this.threadMessageTs) {
@@ -220,5 +231,24 @@ export class RunContext {
 		if (!this.resolved) {
 			this.reject("Run ended unexpectedly");
 		}
+	}
+
+	// ==========================================================================
+	// Readonly getters for post-run logging
+	// ==========================================================================
+
+	/** Final message timestamp (null if never posted). */
+	get finalMessageTs(): string | null {
+		return this.messageTs;
+	}
+
+	/** Final accumulated text (what the user sees, without footer). */
+	get finalText(): string {
+		return this.accumulatedText;
+	}
+
+	/** Whether the message was deleted (SILENT response). */
+	get wasDeleted(): boolean {
+		return this.deleted;
 	}
 }
