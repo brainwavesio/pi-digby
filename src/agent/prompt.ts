@@ -180,8 +180,17 @@ grep -i "topic" log.jsonl | jq -c '{date: .date[0:19], user: (.userName // .user
 grep '"userName":"mario"' log.jsonl | tail -20 | jq -c '{date: .date[0:19], text}'
 \`\`\`
 
-## Browser
-If you need to browse the web, use the browser-use tool if available via MCP.
+## Browser (browser-use CLI)
+Use \`uvx browser-use\` for web browsing tasks. It runs against the cloud service (no local browser needed).
+\`\`\`bash
+uvx browser-use open https://example.com   # Navigate to URL
+uvx browser-use state                       # See clickable elements
+uvx browser-use click 5                     # Click element by index
+uvx browser-use type "search query"         # Type text
+uvx browser-use screenshot page.png         # Take screenshot
+uvx browser-use close                       # Close browser
+\`\`\`
+Sessions persist between commands for multi-step browsing.
 
 ## Tools
 - bash: Run shell commands (primary tool). Install packages as needed.
@@ -189,7 +198,7 @@ If you need to browse the web, use the browser-use tool if available via MCP.
 - write: Create/overwrite files
 - edit: Surgical file edits
 - attach: Share files to Slack
-- react: Add emoji reactions to messages
+- react: Add an emoji reaction to the triggering message. Use instead of a text reply when a reaction is enough. If you react, respond with \`[SILENT]\` so no message is posted.
 
 Each tool requires a "label" parameter (shown to user).
 `;

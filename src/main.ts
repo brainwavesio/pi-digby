@@ -4,6 +4,7 @@ import { resolve } from "path";
 import { getOrCreateRunner, shutdownAllRunners } from "./agent/setup.js";
 import { ChannelQueue } from "./channel/queue.js";
 import { RunContext } from "./channel/run-context.js";
+import { createRunStats } from "./channel/run-stats.js";
 import { ChannelState } from "./channel/state.js";
 import { initConfig } from "./config.js";
 import { createEventsWatcher } from "./events/watcher.js";
@@ -93,8 +94,11 @@ async function handleEvent(event: SlackEvent, client: SlackClient, _isEvent?: bo
 			? (event.threadTs ?? event.ts) // always thread in channels
 			: event.threadTs; // DMs: thread only if already in one
 
-	// Create RunContext — guaranteed to resolve
-	const ctx = new RunContext(client, event.channel, replyThreadTs);
+	// Stats shared between RunContext (footer) and event handler (updates)
+	const stats = createRunStats();
+
+	// Create RunContext — guaranteed to resolve via finally
+	const ctx = new RunContext(client, event.channel, stats, replyThreadTs);
 
 	state.running = true;
 	state.stopRequested = false;
@@ -102,8 +106,7 @@ async function handleEvent(event: SlackEvent, client: SlackClient, _isEvent?: bo
 	log.info(`[${event.channel}] Starting run: ${event.text.substring(0, 50)}`);
 
 	try {
-		ctx.setTyping(true);
-		ctx.setWorking(true);
+		ctx.postThinking();
 
 		const result = await runner.run(
 			ctx,
@@ -112,6 +115,7 @@ async function handleEvent(event: SlackEvent, client: SlackClient, _isEvent?: bo
 			client.getAllChannels().map((c) => ({ id: c.id, name: c.name })),
 			client.getAllUsers().map((u) => ({ id: u.id, userName: u.userName, displayName: u.displayName })),
 			user?.userName,
+			stats,
 		);
 
 		if (result.stopReason === "aborted" && state.stopRequested) {
@@ -119,14 +123,13 @@ async function handleEvent(event: SlackEvent, client: SlackClient, _isEvent?: bo
 				await client.updateMessage(event.channel, state.stopMessageTs, "_Stopped_");
 				state.stopMessageTs = undefined;
 			}
-			ctx.resolve();
 		}
-		// resolve/reject handled inside runner.run() for normal completion
 	} catch (err) {
 		const errMsg = err instanceof Error ? err.message : String(err);
 		log.warn(`[${event.channel}] Run error`, errMsg);
 		ctx.reject(`Something went wrong: ${errMsg.substring(0, 500)}`);
 	} finally {
+		ctx.resolve(); // No-op if already rejected/deleted. Sets streaming=false, adds cost footer.
 		await ctx.flush();
 		state.running = false;
 	}
