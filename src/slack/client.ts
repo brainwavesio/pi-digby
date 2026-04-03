@@ -134,13 +134,13 @@ export class SlackClient {
 		}
 	}
 
-	async uploadFile(channel: string, filePath: string, title?: string): Promise<void> {
+	async uploadFile(channel: string, filePath: string, title?: string, threadTs?: string): Promise<void> {
 		const fileName = title || basename(filePath);
 		const fileContent = readFileSync(filePath);
-		await withRetry(
-			() => this.web.files.uploadV2({ channel_id: channel, file: fileContent, filename: fileName, title: fileName }),
-			"uploadFile",
-		);
+		const args = threadTs
+			? { channels: channel, file: fileContent, filename: fileName, title: fileName, thread_ts: threadTs }
+			: { channel_id: channel, file: fileContent, filename: fileName, title: fileName };
+		await withRetry(() => this.web.files.uploadV2(args as any), "uploadFile");
 	}
 
 	// ==========================================================================
