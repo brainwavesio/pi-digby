@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
-import { resolve } from "path";
+import { mkdirSync, writeFileSync } from "fs";
+import { dirname, join, resolve } from "path";
 import { getOrCreateRunner, shutdownAllRunners } from "./agent/setup.js";
 import { ChannelQueue } from "./channel/queue.js";
 import { RunContext } from "./channel/run-context.js";
@@ -12,7 +13,7 @@ import { startHealthServer } from "./health.js";
 import * as log from "./log.js";
 import { SlackClient } from "./slack/client.js";
 import { type RouterHandler, setupRouter } from "./slack/router.js";
-import type { SlackEvent } from "./slack/types.js";
+import type { Attachment, SlackEvent } from "./slack/types.js";
 
 // ============================================================================
 // Config
@@ -80,11 +81,37 @@ function getChannelRunState(channelId: string): ChannelRunState {
 // Handler
 // ============================================================================
 
+async function downloadAttachments(event: SlackEvent, client: SlackClient): Promise<void> {
+	if (!event.files || event.files.length === 0) return;
+
+	const attachments: Attachment[] = [];
+	for (const file of event.files) {
+		const url = file.url_private_download || file.url_private;
+		const name = file.name || "file";
+		if (!url) continue;
+
+		try {
+			const localRelPath = `${event.channel}/attachments/${event.ts}_${name}`;
+			const fullPath = join(workingDir, localRelPath);
+			mkdirSync(dirname(fullPath), { recursive: true });
+			const buffer = await client.downloadFile(url);
+			writeFileSync(fullPath, buffer);
+			attachments.push({ name, local: localRelPath });
+		} catch (err) {
+			log.warn(`Failed to download attachment ${name}`, err instanceof Error ? err.message : String(err));
+		}
+	}
+	event.attachments = attachments;
+}
+
 async function handleEvent(event: SlackEvent, client: SlackClient, _isEvent?: boolean): Promise<void> {
 	const state = getChannelRunState(event.channel);
 	const runner = await getOrCreateRunner(event.channel, state.channelState.channelDir, workingDir);
 
-	// Log user message
+	// Download file attachments before logging or running
+	await downloadAttachments(event, client);
+
+	// Log user message (now includes downloaded attachments)
 	const user = client.getUser(event.user);
 	state.channelState.logUserMessage(event, user?.userName, user?.displayName);
 
@@ -131,6 +158,14 @@ async function handleEvent(event: SlackEvent, client: SlackClient, _isEvent?: bo
 	} finally {
 		ctx.resolve(); // No-op if already rejected/deleted. Sets streaming=false, adds cost footer.
 		await ctx.flush();
+
+		// Log bot response to log.jsonl (skip thinking-only or deleted messages)
+		const finalText = ctx.finalText;
+		const messageTs = ctx.finalMessageTs;
+		if (finalText && finalText !== RunContext.THINKING_PLACEHOLDER && messageTs && !ctx.wasDeleted) {
+			state.channelState.logBotResponse(finalText, messageTs, replyThreadTs);
+		}
+
 		state.running = false;
 	}
 }
@@ -152,6 +187,12 @@ const handler: RouterHandler = {
 	async handleEvent(event: SlackEvent, isEvent?: boolean): Promise<void> {
 		const state = getChannelRunState(event.channel);
 		state.queue.enqueue(() => handleEvent(event, client, isEvent));
+	},
+
+	logMessage(event: SlackEvent): void {
+		const state = getChannelRunState(event.channel);
+		const user = client.getUser(event.user);
+		state.channelState.logUserMessage(event, user?.userName, user?.displayName);
 	},
 
 	async handleStop(channelId: string, threadTs?: string): Promise<void> {

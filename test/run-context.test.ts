@@ -315,4 +315,68 @@ describe("RunContext", () => {
 			expect(lastUpdate.args[2]).toContain("Bedrock timeout");
 		});
 	});
+
+	// ==========================================================================
+	// Reject clears thinking placeholder
+	// ==========================================================================
+
+	describe("reject with thinking placeholder", () => {
+		it("clears thinking placeholder when error fires before any content", async () => {
+			ctx.postThinking();
+			ctx.reject("Bedrock unavailable");
+			await ctx.flush();
+
+			const lastUpdate = mock.calls.filter((c) => c.method === "updateMessage").pop()!;
+			expect(lastUpdate.args[2]).toContain("Bedrock unavailable");
+			expect(lastUpdate.args[2]).not.toContain("Thinking");
+		});
+
+		it("keeps accumulated text when error fires after content", async () => {
+			ctx.postThinking();
+			ctx.respond("_\u2192 Step 1_");
+			ctx.reject("Timed out");
+			await ctx.flush();
+
+			const lastUpdate = mock.calls.filter((c) => c.method === "updateMessage").pop()!;
+			expect(lastUpdate.args[2]).toContain("Step 1");
+			expect(lastUpdate.args[2]).toContain("Timed out");
+		});
+	});
+
+	// ==========================================================================
+	// State getters for post-run logging
+	// ==========================================================================
+
+	describe("state getters", () => {
+		it("finalMessageTs returns posted message ts", async () => {
+			ctx.postThinking();
+			await ctx.flush();
+
+			expect(ctx.finalMessageTs).toBe("1");
+		});
+
+		it("finalMessageTs is null if never posted", () => {
+			expect(ctx.finalMessageTs).toBeNull();
+		});
+
+		it("finalText returns accumulated text", async () => {
+			ctx.respond("Hello world");
+			await ctx.flush();
+
+			expect(ctx.finalText).toBe("Hello world");
+		});
+
+		it("wasDeleted is false after resolve", () => {
+			ctx.resolve();
+			expect(ctx.wasDeleted).toBe(false);
+		});
+
+		it("wasDeleted is true after deleteMessage", async () => {
+			ctx.postThinking();
+			ctx.deleteMessage();
+			await ctx.flush();
+
+			expect(ctx.wasDeleted).toBe(true);
+		});
+	});
 });

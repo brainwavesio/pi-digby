@@ -35,7 +35,7 @@ function execCommand(command: string, options?: { timeout?: number; signal?: Abo
 		}
 
 		const proc = spawn("bash", ["-c", command], {
-			cwd: "/",
+			cwd: process.env.HOME || "/",
 			env: process.env,
 			stdio: ["ignore", "pipe", "pipe"],
 		});
