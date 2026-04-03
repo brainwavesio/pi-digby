@@ -441,7 +441,7 @@ Resources:
       ServiceName: pi-digby
       Cluster: !Ref ECSCluster
       TaskDefinition: !Ref TaskDefinition
-      DesiredCount: 1
+      DesiredCount: 0  # Set to 1 after first image push
       LaunchType: FARGATE
       PlatformVersion: LATEST
       EnableExecuteCommand: true
@@ -456,6 +456,54 @@ Resources:
             - !Ref PublicSubnet2
           SecurityGroups:
             - !Ref ECSSecurityGroup
+
+# ===========================================================================
+# Backup - daily EFS snapshots via AWS Backup, 5-day retention
+# ===========================================================================
+
+  BackupVault:
+    Type: AWS::Backup::BackupVault
+    Properties:
+      BackupVaultName: pi-digby
+
+  BackupPlan:
+    Type: AWS::Backup::BackupPlan
+    Properties:
+      BackupPlan:
+        BackupPlanName: pi-digby-daily
+        BackupPlanRule:
+          - RuleName: daily-5-day-retention
+            TargetBackupVault: !Ref BackupVault
+            ScheduleExpression: "cron(0 3 * * ? *)"
+            StartWindowMinutes: 60
+            CompletionWindowMinutes: 180
+            Lifecycle:
+              DeleteAfterDays: 5
+
+  BackupRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: pi-digby-backup
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: backup.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForBackup
+        - arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForRestores
+
+  BackupSelection:
+    Type: AWS::Backup::BackupSelection
+    Properties:
+      BackupPlanId: !Ref BackupPlan
+      BackupSelection:
+        SelectionName: pi-digby-efs
+        IamRoleArn: !GetAtt BackupRole.Arn
+        Resources:
+          - !GetAtt EFSFileSystem.Arn
 
 # ===========================================================================
 # Outputs
