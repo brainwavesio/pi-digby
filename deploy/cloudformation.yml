@@ -285,6 +285,30 @@ Resources:
                   - ssmmessages:OpenControlChannel
                   - ssmmessages:OpenDataChannel
                 Resource: "*"
+        - PolicyName: self-observability
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:GetLogEvents
+                  - logs:FilterLogEvents
+                  - logs:DescribeLogStreams
+                Resource: !Sub "arn:aws:logs:us-east-1:${AWS::AccountId}:log-group:/ecs/pi-digby:*"
+              - Effect: Allow
+                Action:
+                  - ecs:DescribeTasks
+                  - ecs:DescribeServices
+                  - ecs:ListTasks
+                Resource: "*"
+                Condition:
+                  ArnEquals:
+                    ecs:cluster: !GetAtt ECSCluster.Arn
+              - Effect: Allow
+                Action:
+                  - cloudwatch:GetMetricData
+                  - cloudwatch:GetMetricStatistics
+                Resource: "*"
 
   # GitHub OIDC Provider
   GitHubOIDCProvider:
