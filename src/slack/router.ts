@@ -71,20 +71,38 @@ export function setupRouter(client: SlackClient, handler: RouterHandler, startup
 			files?: Array<{ name?: string; url_private_download?: string; url_private?: string }>;
 		};
 
-		// Skip bot messages, edits, etc.
-		if (e.bot_id || !e.user || e.user === botUserId) return;
-		if (e.subtype !== undefined && e.subtype !== "file_share") return;
+		// Skip our own messages and non-message subtypes
+		if (e.user === botUserId) return;
+		if (!e.user && !e.bot_id) return;
+		if (e.subtype !== undefined && e.subtype !== "file_share" && e.subtype !== "bot_message") return;
 		if (!e.text && (!e.files || e.files.length === 0)) return;
+
+		// Other bots (Linear, etc.) — log but never trigger runs
+		if (e.bot_id) {
+			const slackEvent: SlackEvent = {
+				type: "channel",
+				channel: e.channel,
+				ts: e.ts,
+				user: e.user || e.bot_id,
+				text: e.text || "",
+				files: e.files,
+				threadTs: e.thread_ts,
+			};
+			handler.logMessage(slackEvent);
+			return;
+		}
 
 		const isDm = e.channel_type === "im" || e.channel_type === "mpim";
 		const isAlwaysChannel = shouldProcessAllMessages(e.channel);
 		const isChannelThread = !isDm && !!e.thread_ts;
 
+		// At this point e.user must exist: bot messages (bot_id) already returned,
+		// and messages with neither user nor bot_id were filtered above.
 		const slackEvent: SlackEvent = {
 			type: isDm ? "dm" : "channel",
 			channel: e.channel,
 			ts: e.ts,
-			user: e.user,
+			user: e.user!,
 			text: (e.text || "").replace(/<@[A-Z0-9]+>/gi, "").trim(),
 			files: e.files,
 			threadTs: e.thread_ts,

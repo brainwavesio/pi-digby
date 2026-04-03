@@ -58,6 +58,13 @@ RUN curl -fsSL https://bun.sh/install | bash \
   && ln -s /root/.bun/bin/bun /usr/local/bin/bun \
   && ln -s /root/.bun/bin/bunx /usr/local/bin/bunx
 
+# AWS CLI v2 (no pinned version — AWS updates the zip at a fixed URL;
+# integrity via HTTPS from awscli.amazonaws.com, same as uv/bun installs)
+RUN curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip \
+  && unzip -q /tmp/awscliv2.zip -d /tmp \
+  && /tmp/aws/install \
+  && rm -rf /tmp/awscliv2.zip /tmp/aws
+
 # qmd (semantic search over markdown files)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential cmake python3-dev \

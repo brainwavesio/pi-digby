@@ -47,12 +47,16 @@ const model = getModel("amazon-bedrock", "us.anthropic.claude-sonnet-4-6");
 // ---------------------------------------------------------------------------
 
 async function getBedrockApiKey(): Promise<string> {
-	if (process.env.AWS_PROFILE || (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY)) {
+	if (
+		process.env.AWS_PROFILE ||
+		(process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) ||
+		process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI // ECS task role
+	) {
 		return "<authenticated>";
 	}
 	throw new Error(
 		"No AWS credentials found for Bedrock.\n\n" +
-			"Set AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY, or AWS_PROFILE environment variables.",
+			"Set AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY, AWS_PROFILE, or run on ECS with a task role.",
 	);
 }
 
