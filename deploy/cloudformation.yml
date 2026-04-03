@@ -534,7 +534,7 @@ Resources:
       ServiceName: pi-digby
       Cluster: !Ref ECSCluster
       TaskDefinition: !Ref TaskDefinition
-      DesiredCount: 0  # Set to 1 after first image push
+      DesiredCount: 1
       LaunchType: FARGATE
       PlatformVersion: LATEST
       EnableExecuteCommand: true
