@@ -75,6 +75,10 @@ COPY entrypoint.sh ./
 
 RUN mkdir -p /data && chmod +x entrypoint.sh
 
+# At runtime, HOME=/data so all dotfiles/caches land on EFS.
+# Build-time installs (uv, bun) stay in /root, reachable via /usr/local/bin symlinks.
+ENV HOME=/data
+
 HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
   CMD curl -f http://localhost:8080/health || exit 1
 

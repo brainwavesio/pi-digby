@@ -1,17 +1,10 @@
 #!/bin/sh
 
 # /data is pre-mounted by ECS via EFS — no mount logic needed
-
-# Persist ~/.pi on EFS so MCP config, auth tokens survive restarts
-mkdir -p /data/.pi
-ln -sfn /data/.pi /root/.pi
-
-# Persist ~/.gitconfig on EFS
-if [ -f /data/.gitconfig ]; then
-  ln -sf /data/.gitconfig /root/.gitconfig
-fi
+# HOME=/data (set in Dockerfile) so all ~/... paths resolve to /data/...
 
 # Seed MCP config from repo default on first run
+mkdir -p /data/.pi
 if [ ! -f /data/.pi/mcp.json ]; then
   cp /app/.pi/mcp.json /data/.pi/mcp.json
 fi
@@ -39,11 +32,7 @@ QMDEOF
 fi
 mkdir -p /data/.cache/qmd /data/memory
 
-# Persist QMD cache on EFS
-mkdir -p /root/.cache
-ln -sfn /data/.cache/qmd /root/.cache/qmd
-
 # Background: build initial index
-QMD_CACHE_DIR=/data/.cache/qmd qmd embed &
+qmd embed &
 
 exec node dist/main.js /data
