@@ -33,9 +33,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN curl -fsSL "https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep-14.1.1-x86_64-unknown-linux-musl.tar.gz" \
   | tar xz --strip-components=1 -C /usr/local/bin "ripgrep-14.1.1-x86_64-unknown-linux-musl/rg"
 
-# cloudflared (Cloudflare Tunnel client)
+# cloudflared (Cloudflare Tunnel client) — pinned version + checksum
 RUN curl -fsSL -o /usr/local/bin/cloudflared \
-    "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64" \
+    "https://github.com/cloudflare/cloudflared/releases/download/2026.3.0/cloudflared-linux-amd64" \
+  && echo "4a9e50e6d6d798e90fcd01933151a90bf7edd99a0a55c28ad18f2e16263a5c30  /usr/local/bin/cloudflared" | sha256sum -c - \
   && chmod +x /usr/local/bin/cloudflared
 
 # pup (Datadog CLI)
