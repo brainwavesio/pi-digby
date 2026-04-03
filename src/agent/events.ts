@@ -6,16 +6,9 @@
 
 import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent";
 import type { RunContext } from "../channel/run-context.js";
+import type { RunStats } from "../channel/run-stats.js";
 import { isDebugThreadingEnabled } from "../config.js";
 import * as log from "../log.js";
-
-export interface RunStats {
-	stepCount: number;
-	totalCost: number;
-	stopReason: string;
-	errorMessage?: string;
-	lastStreamedText: string;
-}
 
 /**
  * Extract displayable text from a tool result (string or MCP-style content array).
@@ -86,15 +79,8 @@ function truncate(text: string, maxLen: number): string {
 export function createEventHandler(
 	ctx: RunContext,
 	channelId: string,
-): { handler: (event: AgentSessionEvent) => void; stats: RunStats } {
-	const stats: RunStats = {
-		stepCount: 0,
-		totalCost: 0,
-		stopReason: "stop",
-		errorMessage: undefined,
-		lastStreamedText: "",
-	};
-
+	stats: RunStats,
+): (event: AgentSessionEvent) => void {
 	const pendingTools = new Map<string, { toolName: string; args: unknown; startTime: number }>();
 	const debugThreading = isDebugThreadingEnabled();
 
@@ -111,7 +97,7 @@ export function createEventHandler(
 			});
 
 			log.toolStart(channelId, e.toolName, label);
-			ctx.respond(`_\u2192 ${label}_`, false);
+			ctx.respond(`_\u2192 ${label}_`);
 		} else if (event.type === "tool_execution_end") {
 			const e = event as any;
 			const resultStr = extractToolResultText(e.result);
@@ -139,7 +125,7 @@ export function createEventHandler(
 			}
 
 			if (e.isError) {
-				ctx.respond(`_Error: ${truncate(resultStr, 200)}_`, false);
+				ctx.respond(`_Error: ${truncate(resultStr, 200)}_`);
 			}
 		} else if (event.type === "message_end") {
 			const e = event as any;
@@ -181,7 +167,7 @@ export function createEventHandler(
 					const text = textParts.join("\n");
 					if (text.trim()) {
 						stats.lastStreamedText = text;
-						ctx.respond(text, true);
+						ctx.respond(text);
 						if (debugThreading) {
 							ctx.respondInThread(text);
 						}
@@ -190,7 +176,7 @@ export function createEventHandler(
 			}
 		} else if (event.type === "compaction_start") {
 			log.info(`[${channelId}] Compaction started (reason: ${event.reason})`);
-			ctx.respond("_Compacting context..._", false);
+			ctx.respond("_Compacting context..._");
 		} else if (event.type === "compaction_end") {
 			if (event.result) {
 				log.info(`[${channelId}] Compaction complete: ${event.result.tokensBefore} tokens compacted`);
@@ -200,15 +186,15 @@ export function createEventHandler(
 		} else if (event.type === "auto_retry_start") {
 			const e = event as any;
 			log.warn(`[${channelId}] Retrying (${e.attempt}/${e.maxAttempts}): ${e.errorMessage}`);
-			ctx.respond(`_Retrying (${e.attempt}/${e.maxAttempts})..._`, false);
+			ctx.respond(`_Retrying (${e.attempt}/${e.maxAttempts})..._`);
 		} else if (event.type === "auto_retry_end") {
 			const e = event as any;
 			if (!e.success) {
 				log.warn(`[${channelId}] Retries exhausted: ${e.finalError}`);
-				ctx.respond("_Retries exhausted_", false);
+				ctx.respond("_Retries exhausted_");
 			}
 		}
 	};
 
-	return { handler, stats };
+	return handler;
 }

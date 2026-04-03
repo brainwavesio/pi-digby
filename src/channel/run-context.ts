@@ -1,9 +1,10 @@
 import * as log from "../log.js";
+import type { RunStats } from "./run-stats.js";
 
 const MAX_MESSAGE_LENGTH = 35000;
 const MAX_THREAD_MESSAGE_LENGTH = 20000;
 
-interface SlackClientLike {
+export interface SlackClientLike {
 	postMessage(channel: string, text: string, threadTs?: string): Promise<string>;
 	updateMessage(channel: string, ts: string, text: string): Promise<void>;
 	deleteMessage(channel: string, ts: string): Promise<void>;
@@ -11,53 +12,68 @@ interface SlackClientLike {
 	uploadFile(channel: string, filePath: string, title?: string): Promise<void>;
 }
 
+/**
+ * Owns the lifecycle of a single Slack message for one agent run.
+ *
+ * Guarantees:
+ * - Every run ends with exactly one terminal op: resolve(), reject(), or deleteMessage()
+ * - dispose() is the safety net — if no terminal op was called, it rejects
+ * - The footer (steps/cost) is auto-computed from stats; callers never compose it
+ * - All Slack operations are serialized through updateChain
+ */
 export class RunContext {
 	private client: SlackClientLike;
 	private channel: string;
 	private replyThreadTs?: string;
+	private stats: RunStats;
 
-	messageTs: string | null = null;
-	resolved = false;
-	accumulatedText = "";
-	isWorking = false;
-	threadMessageTs: string[] = [];
-
+	private messageTs: string | null = null;
+	private accumulatedText = "";
+	private streaming = true;
+	private resolved = false;
+	private threadMessageTs: string[] = [];
 	private updateChain: Promise<void> = Promise.resolve();
 
-	constructor(client: SlackClientLike, channel: string, replyThreadTs?: string) {
+	constructor(client: SlackClientLike, channel: string, stats: RunStats, replyThreadTs?: string) {
 		this.client = client;
 		this.channel = channel;
+		this.stats = stats;
 		this.replyThreadTs = replyThreadTs;
 	}
 
-	/** Enqueue a Slack operation onto the serial update chain */
-	private enqueueUpdate(fn: () => Promise<void>): void {
-		this.updateChain = this.updateChain.then(fn).catch((err) => {
-			log.warn(`[run-context] Slack update error: ${err instanceof Error ? err.message : String(err)}`);
-		});
+	// ==========================================================================
+	// Display computation
+	// ==========================================================================
+
+	/** Auto-computed footer from stats + streaming state */
+	private get footer(): string {
+		if (this.stats.stepCount === 0 && this.stats.totalCost === 0) return "";
+		const cost = this.streaming ? "streaming" : `$${this.stats.totalCost.toFixed(2)}`;
+		return `    _\u00AB${this.stats.stepCount} steps \u00B7 ${cost}\u00BB_`;
 	}
 
-	/** Build the display text with optional working indicator */
+	/** Full display text: accumulated content + auto footer */
 	private get displayText(): string {
-		const text = this.accumulatedText;
-		if (this.isWorking) {
-			return text ? `${text}\n...` : "...";
-		}
-		return text;
+		return (this.accumulatedText || "") + this.footer;
 	}
 
-	/** Truncate text to the given limit */
 	private truncate(text: string, limit: number): string {
 		if (text.length <= limit) return text;
-		return `${text.slice(0, limit)}\n...(truncated)`;
+		return `${text.slice(0, limit)}\n_(truncated)_`;
 	}
 
-	/** Append text to the accumulated message and post/update in Slack */
-	respond(text: string, _shouldLog?: boolean): void {
-		this.accumulatedText = this.accumulatedText ? `${this.accumulatedText}\n${text}` : text;
+	// ==========================================================================
+	// Serialized Slack operations
+	// ==========================================================================
+
+	private enqueueUpdate(fn: () => Promise<void>): void {
+		this.updateChain = this.updateChain.then(fn).catch((err) => {
+			log.warn("[run-context] Slack update error", err instanceof Error ? err.message : String(err));
+		});
+	}
+
+	private enqueuePostOrUpdate(display: string): void {
 		this.enqueueUpdate(async () => {
-			const display = this.truncate(this.displayText, MAX_MESSAGE_LENGTH);
-			if (!display) return;
 			try {
 				if (this.messageTs) {
 					await this.client.updateMessage(this.channel, this.messageTs, display);
@@ -65,30 +81,45 @@ export class RunContext {
 					this.messageTs = await this.client.postMessage(this.channel, display, this.replyThreadTs);
 				}
 			} catch (err) {
-				log.warn(`[run-context] respond error: ${err instanceof Error ? err.message : String(err)}`);
+				log.warn("[run-context] post/update error", err instanceof Error ? err.message : String(err));
 			}
 		});
 	}
 
-	/** Replace the accumulated text entirely and update in Slack */
+	// ==========================================================================
+	// Public API — streaming operations (called by event handler / runner)
+	// ==========================================================================
+
+	/** Post the initial "thinking" message. Call once at run start. */
+	postThinking(): void {
+		this.enqueueUpdate(async () => {
+			try {
+				if (!this.messageTs) {
+					this.messageTs = await this.client.postMessage(
+						this.channel,
+						"\ud83e\udd14 _Thinking_",
+						this.replyThreadTs,
+					);
+				}
+			} catch (err) {
+				log.warn("[run-context] postThinking error", err instanceof Error ? err.message : String(err));
+			}
+		});
+	}
+
+	/** Append text to the message (tool labels, streamed response chunks). */
+	respond(text: string): void {
+		this.accumulatedText = this.accumulatedText ? `${this.accumulatedText}\n${text}` : text;
+		this.enqueuePostOrUpdate(this.truncate(this.displayText, MAX_MESSAGE_LENGTH));
+	}
+
+	/** Replace all accumulated text (for final response). */
 	replaceMessage(text: string): void {
 		this.accumulatedText = text;
-		this.enqueueUpdate(async () => {
-			const display = this.truncate(this.displayText, MAX_MESSAGE_LENGTH);
-			if (!display) return;
-			try {
-				if (this.messageTs) {
-					await this.client.updateMessage(this.channel, this.messageTs, display);
-				} else {
-					this.messageTs = await this.client.postMessage(this.channel, display, this.replyThreadTs);
-				}
-			} catch (err) {
-				log.warn(`[run-context] replaceMessage error: ${err instanceof Error ? err.message : String(err)}`);
-			}
-		});
+		this.enqueuePostOrUpdate(this.truncate(this.displayText, MAX_MESSAGE_LENGTH));
 	}
 
-	/** Post a reply in the thread under the bot's main message */
+	/** Post a reply in the thread under the bot's main message. */
 	respondInThread(text: string): void {
 		this.enqueueUpdate(async () => {
 			if (!this.messageTs) return;
@@ -97,129 +128,87 @@ export class RunContext {
 				const ts = await this.client.postMessage(this.channel, truncated, this.messageTs);
 				this.threadMessageTs.push(ts);
 			} catch (err) {
-				log.warn(`[run-context] respondInThread error: ${err instanceof Error ? err.message : String(err)}`);
+				log.warn("[run-context] respondInThread error", err instanceof Error ? err.message : String(err));
 			}
 		});
 	}
 
-	/** Post the initial "thinking" message */
-	setTyping(isTyping: boolean): void {
-		if (!isTyping) return;
-		this.isWorking = true;
-		this.enqueueUpdate(async () => {
-			try {
-				if (!this.messageTs) {
-					this.messageTs = await this.client.postMessage(this.channel, "...", this.replyThreadTs);
-				}
-			} catch (err) {
-				log.warn(`[run-context] setTyping error: ${err instanceof Error ? err.message : String(err)}`);
-			}
-		});
-	}
-
-	/** Toggle the "..." working indicator on the message */
-	setWorking(working: boolean): void {
-		this.isWorking = working;
-		this.enqueueUpdate(async () => {
-			if (!this.messageTs) return;
-			try {
-				const display = this.truncate(this.displayText, MAX_MESSAGE_LENGTH);
-				if (display) {
-					await this.client.updateMessage(this.channel, this.messageTs, display);
-				}
-			} catch (err) {
-				log.warn(`[run-context] setWorking error: ${err instanceof Error ? err.message : String(err)}`);
-			}
-		});
-	}
-
-	/** Delete the main message and all thread messages */
-	deleteMessage(): void {
-		this.enqueueUpdate(async () => {
-			try {
-				// Delete thread messages first
-				for (const ts of this.threadMessageTs) {
-					await this.client.deleteMessage(this.channel, ts);
-				}
-				this.threadMessageTs = [];
-				// Delete main message
-				if (this.messageTs) {
-					await this.client.deleteMessage(this.channel, this.messageTs);
-					this.messageTs = null;
-				}
-			} catch (err) {
-				log.warn(`[run-context] deleteMessage error: ${err instanceof Error ? err.message : String(err)}`);
-			}
-		});
-	}
-
-	/** Add a reaction to a specific message */
+	/** React to a specific message with an emoji. */
 	addReaction(emoji: string, triggerTs: string): void {
 		this.enqueueUpdate(async () => {
 			try {
 				await this.client.addReaction(this.channel, triggerTs, emoji);
 			} catch (err) {
-				log.warn(`[run-context] addReaction error: ${err instanceof Error ? err.message : String(err)}`);
+				log.warn("[run-context] addReaction error", err instanceof Error ? err.message : String(err));
 			}
 		});
 	}
 
-	/** Upload a file to the channel */
+	/** Upload a file to the channel. */
 	uploadFile(filePath: string, title?: string): void {
 		this.enqueueUpdate(async () => {
 			try {
 				await this.client.uploadFile(this.channel, filePath, title);
 			} catch (err) {
-				log.warn(`[run-context] uploadFile error: ${err instanceof Error ? err.message : String(err)}`);
+				log.warn("[run-context] uploadFile error", err instanceof Error ? err.message : String(err));
 			}
 		});
 	}
 
-	/** Wait for all queued updates to complete */
+	// ==========================================================================
+	// Terminal operations — exactly one fires per run
+	// ==========================================================================
+
+	/** Mark run complete. Sets streaming=false so footer shows cost instead of "streaming". */
+	resolve(): void {
+		if (this.resolved) return;
+		this.resolved = true;
+		this.streaming = false;
+		this.enqueuePostOrUpdate(this.truncate(this.displayText, MAX_MESSAGE_LENGTH));
+	}
+
+	/** Mark run failed. Appends error to message, sets streaming=false. */
+	reject(error: string): void {
+		if (this.resolved) return;
+		this.resolved = true;
+		this.streaming = false;
+		this.accumulatedText = this.accumulatedText
+			? `${this.accumulatedText}\n\n_\u26a0 ${error}_`
+			: `_\u26a0 ${error}_`;
+		this.enqueuePostOrUpdate(this.truncate(this.displayText, MAX_MESSAGE_LENGTH));
+	}
+
+	/** Delete the message entirely (for [SILENT] responses). Terminal. */
+	deleteMessage(): void {
+		if (this.resolved) return;
+		this.resolved = true;
+		this.streaming = false;
+		this.enqueueUpdate(async () => {
+			try {
+				for (const ts of this.threadMessageTs) {
+					await this.client.deleteMessage(this.channel, ts);
+				}
+				this.threadMessageTs = [];
+				if (this.messageTs) {
+					await this.client.deleteMessage(this.channel, this.messageTs);
+					this.messageTs = null;
+				}
+			} catch (err) {
+				log.warn("[run-context] deleteMessage error", err instanceof Error ? err.message : String(err));
+			}
+		});
+	}
+
+	// ==========================================================================
+	// Lifecycle
+	// ==========================================================================
+
+	/** Wait for all queued Slack operations to complete. */
 	async flush(): Promise<void> {
 		await this.updateChain;
 	}
 
-	/** Mark the run as resolved and remove the working indicator */
-	resolve(): void {
-		if (this.resolved) return;
-		this.resolved = true;
-		this.isWorking = false;
-		this.enqueueUpdate(async () => {
-			if (!this.messageTs) return;
-			try {
-				const display = this.truncate(this.accumulatedText, MAX_MESSAGE_LENGTH);
-				if (display) {
-					await this.client.updateMessage(this.channel, this.messageTs, display);
-				}
-			} catch (err) {
-				log.warn(`[run-context] resolve error: ${err instanceof Error ? err.message : String(err)}`);
-			}
-		});
-	}
-
-	/** Mark the run as resolved with an error, post the error and remove working indicator */
-	reject(error: string): void {
-		if (this.resolved) return;
-		this.resolved = true;
-		this.isWorking = false;
-		const errorText = this.accumulatedText ? `${this.accumulatedText}\n\n:warning: ${error}` : `:warning: ${error}`;
-		this.accumulatedText = errorText;
-		this.enqueueUpdate(async () => {
-			try {
-				const display = this.truncate(errorText, MAX_MESSAGE_LENGTH);
-				if (this.messageTs) {
-					await this.client.updateMessage(this.channel, this.messageTs, display);
-				} else {
-					this.messageTs = await this.client.postMessage(this.channel, display, this.replyThreadTs);
-				}
-			} catch (err) {
-				log.warn(`[run-context] reject error: ${err instanceof Error ? err.message : String(err)}`);
-			}
-		});
-	}
-
-	/** Safety net: if not resolved, reject with a default message. Always call in finally block. */
+	/** Safety net: if no terminal op was called, reject with a default message. */
 	dispose(): void {
 		if (!this.resolved) {
 			this.reject("Run ended unexpectedly");

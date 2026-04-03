@@ -24,6 +24,7 @@ import { homedir } from "os";
 import { dirname, join } from "path";
 import sharp from "sharp";
 import type { RunContext } from "../channel/run-context.js";
+import type { RunStats } from "../channel/run-stats.js";
 import type { ChannelState } from "../channel/state.js";
 import { getRunTimeout } from "../config.js";
 import * as log from "../log.js";
@@ -31,7 +32,7 @@ import { createMomSettingsManager, syncLogToContext } from "../persistence/conte
 import { loadMemory } from "../persistence/memory.js";
 import type { SlackChannel, SlackEvent, SlackUser } from "../slack/types.js";
 import { createTools } from "../tools/index.js";
-import { createEventHandler, type RunStats } from "./events.js";
+import { createEventHandler } from "./events.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { loadSkills } from "./skills.js";
 
@@ -119,8 +120,6 @@ function formatTimestamp(): string {
 	return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}${offsetSign}${offsetHours}:${offsetMins}`;
 }
 
-const SLACK_MAX_LENGTH = 40000;
-
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
@@ -133,6 +132,7 @@ export interface ChannelRunner {
 		channels: SlackChannel[],
 		users: SlackUser[],
 		userName?: string,
+		stats?: RunStats,
 	): Promise<RunResult>;
 	abort(): void;
 	shutdown(): Promise<void>;
@@ -279,20 +279,7 @@ export async function createChannelRunner(opts: {
 	await session.bindExtensions({});
 
 	// -----------------------------------------------------------------------
-	// Event handler (subscribed once, stats are reset per run)
-	// -----------------------------------------------------------------------
-	let eventStats: RunStats | null = null;
-
-	session.subscribe((event) => {
-		if (!eventStats) return;
-		// Delegate to the per-run event handler
-		if ((event as any)._handler) {
-			(event as any)._handler(event);
-		}
-	});
-
-	// -----------------------------------------------------------------------
-	// Abort controller for timeout
+	// Abort state
 	// -----------------------------------------------------------------------
 	let abortRequested = false;
 
@@ -307,8 +294,17 @@ export async function createChannelRunner(opts: {
 			channels: SlackChannel[],
 			users: SlackUser[],
 			userName?: string,
+			stats?: RunStats,
 		): Promise<RunResult> {
 			abortRequested = false;
+			// Use caller's stats (shared with RunContext for footer) or create local
+			const runStats: RunStats = stats || {
+				stepCount: 0,
+				totalCost: 0,
+				stopReason: "stop",
+				errorMessage: undefined,
+				lastStreamedText: "",
+			};
 
 			// Ensure channel directory exists
 			await mkdir(channelDir, { recursive: true });
@@ -370,11 +366,8 @@ export async function createChannelRunner(opts: {
 				ctx.addReaction(emoji, event.ts);
 			};
 
-			// Create per-run event handler
-			const { handler, stats } = createEventHandler(ctx, channelId);
-			eventStats = stats;
-
-			// Replace session-level subscriber with per-run handler
+			// Create per-run event handler (shares stats reference with RunContext for footer)
+			const handler = createEventHandler(ctx, channelId, runStats);
 			const unsubscribe = session.subscribe(handler);
 
 			try {
@@ -441,23 +434,19 @@ export async function createChannelRunner(opts: {
 						log.warn(`[${channelId}] Run error/timeout: ${err.message}`);
 						await session.abort();
 					}
-					stats.stopReason = "error";
-					stats.errorMessage = err.message;
+					runStats.stopReason = "error";
+					runStats.errorMessage = err.message;
 				});
 
 				// Wait for Slack update queue to flush
 				await ctx.flush();
 
-				// Handle final result
-				if (stats.stopReason === "error" && stats.errorMessage) {
-					ctx.replaceMessage(`_Sorry, something went wrong: ${truncate(stats.errorMessage, 500)}_`);
-				} else if (stats.stopReason === "max_tokens") {
-					const footer =
-						stats.stepCount > 0 || stats.totalCost > 0
-							? `    _\u00AB${stats.stepCount} steps \u00B7 $${stats.totalCost.toFixed(2)}\u00BB_`
-							: "";
+				// Handle final result — footer is auto-appended by RunContext
+				if (runStats.stopReason === "error" && runStats.errorMessage) {
+					ctx.replaceMessage(`_Sorry, something went wrong: ${truncate(runStats.errorMessage, 500)}_`);
+				} else if (runStats.stopReason === "max_tokens") {
 					ctx.replaceMessage(
-						`_Ran out of space mid-response. Try asking me to continue, or break it into smaller steps._${footer}`,
+						"_Ran out of space mid-response. Try asking me to continue, or break it into smaller steps._",
 					);
 				} else {
 					// Extract final text from session messages
@@ -468,35 +457,24 @@ export async function createChannelRunner(opts: {
 							.filter((c): c is { type: "text"; text: string } => c.type === "text")
 							.map((c) => c.text)
 							.join("\n") || "";
-					const finalText = sessionFinalText.trim() ? sessionFinalText : stats.lastStreamedText;
+					const finalText = sessionFinalText.trim() ? sessionFinalText : runStats.lastStreamedText;
 
 					// Check for [SILENT] marker
 					if (finalText.trim() === "[SILENT]" || finalText.trim().startsWith("[SILENT]")) {
 						ctx.deleteMessage();
 						log.info(`[${channelId}] Silent response - deleted message`);
 					} else if (finalText.trim()) {
-						const footer =
-							stats.stepCount > 0 || stats.totalCost > 0
-								? `    _\u00AB${stats.stepCount} steps \u00B7 $${stats.totalCost.toFixed(2)}\u00BB_`
-								: "";
-						const fullText = finalText + footer;
-						const mainText =
-							fullText.length > SLACK_MAX_LENGTH
-								? `${fullText.substring(0, SLACK_MAX_LENGTH - 50)}\n\n_(see thread for full response)_`
-								: fullText;
-						ctx.replaceMessage(mainText);
+						ctx.replaceMessage(finalText);
 					}
 				}
 
-				ctx.resolve();
-
+				// NOTE: resolve() is NOT called here — main.ts calls it in finally
 				return {
-					stopReason: stats.stopReason,
-					errorMessage: stats.errorMessage,
+					stopReason: runStats.stopReason,
+					errorMessage: runStats.errorMessage,
 				};
 			} finally {
 				unsubscribe();
-				eventStats = null;
 			}
 		},
 
