@@ -488,6 +488,8 @@ export async function createChannelRunner(opts: {
 					}
 				}
 
+				ctx.resolve();
+
 				return {
 					stopReason: stats.stopReason,
 					errorMessage: stats.errorMessage,
