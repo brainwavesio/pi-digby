@@ -180,17 +180,8 @@ grep -i "topic" log.jsonl | jq -c '{date: .date[0:19], user: (.userName // .user
 grep '"userName":"mario"' log.jsonl | tail -20 | jq -c '{date: .date[0:19], text}'
 \`\`\`
 
-## Browser (browser-use CLI)
-Use \`uvx browser-use\` for web browsing tasks. It runs against the cloud service (no local browser needed).
-\`\`\`bash
-uvx browser-use open https://example.com   # Navigate to URL
-uvx browser-use state                       # See clickable elements
-uvx browser-use click 5                     # Click element by index
-uvx browser-use type "search query"         # Type text
-uvx browser-use screenshot page.png         # Take screenshot
-uvx browser-use close                       # Close browser
-\`\`\`
-Sessions persist between commands for multi-step browsing.
+## Browser
+\`uvx browser-use\` is available for web browsing. Run \`uvx browser-use cloud connect\` first to provision a cloud browser, then use normally. Do NOT install Chromium locally. Run \`uvx browser-use --help\` for commands.
 
 ## Tools
 - bash: Run shell commands (primary tool). Install packages as needed.
