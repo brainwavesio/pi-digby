@@ -388,6 +388,7 @@ Resources:
                   - cloudformation:DescribeChangeSet
                   - cloudformation:GetTemplateSummary
                 Resource: !Sub "arn:aws:cloudformation:us-east-1:${AWS::AccountId}:stack/pi-digby/*"
+              # IAM: scoped to pi-digby-* roles with permissions boundary
               - Effect: Allow
                 Action:
                   - iam:CreateRole
@@ -400,29 +401,54 @@ Resources:
                   - iam:AttachRolePolicy
                   - iam:DetachRolePolicy
                   - iam:TagRole
-                Resource:
-                  - !Sub "arn:aws:iam::${AWS::AccountId}:role/pi-digby-*"
+                Resource: !Sub "arn:aws:iam::${AWS::AccountId}:role/pi-digby-*"
+              # Read-only describe across services (required by CF to diff state)
               - Effect: Allow
                 Action:
                   - ec2:Describe*
                   - efs:Describe*
                   - ecs:Describe*
-                  - ecs:CreateCluster
-                  - ecs:CreateService
-                  - ecs:UpdateService
-                  - ecs:RegisterTaskDefinition
-                  - ecs:DeregisterTaskDefinition
                   - ecr:Describe*
                   - logs:Describe*
-                  - logs:CreateLogGroup
-                  - logs:PutRetentionPolicy
                   - secretsmanager:Describe*
                   - backup:Describe*
-                  - backup:CreateBackupVault
-                  - backup:CreateBackupPlan
-                  - backup:CreateBackupSelection
-                  - backup:UpdateBackupPlan
                 Resource: "*"
+              # Scoped write actions for pi-digby resources
+              - Effect: Allow
+                Action:
+                  - ecs:CreateCluster
+                  - ecs:UpdateCluster
+                  - ecs:DeleteCluster
+                Resource: !Sub "arn:aws:ecs:us-east-1:${AWS::AccountId}:cluster/pi-digby"
+              - Effect: Allow
+                Action:
+                  - ecs:CreateService
+                  - ecs:UpdateService
+                  - ecs:DeleteService
+                Resource: !Sub "arn:aws:ecs:us-east-1:${AWS::AccountId}:service/pi-digby/*"
+              - Effect: Allow
+                Action:
+                  - ecs:RegisterTaskDefinition
+                  - ecs:DeregisterTaskDefinition
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:DeleteLogGroup
+                  - logs:PutRetentionPolicy
+                Resource: !Sub "arn:aws:logs:us-east-1:${AWS::AccountId}:log-group:/ecs/pi-digby:*"
+              - Effect: Allow
+                Action:
+                  - backup:CreateBackupVault
+                  - backup:DeleteBackupVault
+                  - backup:CreateBackupPlan
+                  - backup:DeleteBackupPlan
+                  - backup:UpdateBackupPlan
+                  - backup:CreateBackupSelection
+                  - backup:DeleteBackupSelection
+                Resource:
+                  - !Sub "arn:aws:backup:us-east-1:${AWS::AccountId}:backup-vault:pi-digby"
+                  - !Sub "arn:aws:backup:us-east-1:${AWS::AccountId}:backup-plan:*"
 
   # ===========================================================================
   # Compute - ECS
