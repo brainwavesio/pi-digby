@@ -1,0 +1,152 @@
+import { shouldProcessAllMessages } from "../config.js";
+import * as log from "../log.js";
+import type { SlackClient } from "./client.js";
+import type { SlackEvent } from "./types.js";
+
+export interface RouterHandler {
+	/** Check if channel is currently running (SYNC) */
+	isRunning(channelId: string): boolean;
+	/** Handle an event that triggers the bot (ASYNC) */
+	handleEvent(event: SlackEvent, isEvent?: boolean): Promise<void>;
+	/** Handle stop command */
+	handleStop(channelId: string, threadTs?: string): Promise<void>;
+}
+
+/**
+ * Routes Slack events to the appropriate handler.
+ * Classifies events, deduplicates, and handles busy/stop states.
+ */
+export function setupRouter(client: SlackClient, handler: RouterHandler, startupTs: string): void {
+	const botUserId = client.getBotUserId();
+
+	// ===== Channel @mentions =====
+	client.onAppMention((event) => {
+		const e = event as {
+			text: string;
+			channel: string;
+			user: string;
+			ts: string;
+			thread_ts?: string;
+			files?: Array<{ name?: string; url_private_download?: string; url_private?: string }>;
+		};
+
+		// Skip DMs (handled by message event)
+		if (e.channel.startsWith("D")) return;
+
+		// Skip channels where message handler processes everything
+		if (shouldProcessAllMessages(e.channel)) return;
+
+		const slackEvent: SlackEvent = {
+			type: "mention",
+			channel: e.channel,
+			ts: e.ts,
+			user: e.user,
+			text: e.text.replace(/<@[A-Z0-9]+>/gi, "").trim(),
+			files: e.files,
+			threadTs: e.thread_ts,
+		};
+
+		// Only trigger processing for messages after startup
+		if (e.ts < startupTs) {
+			log.info(`[${e.channel}] Skipping old mention (pre-startup)`);
+			return;
+		}
+
+		processOrBusy(client, handler, slackEvent, e.channel);
+	});
+
+	// ===== All messages (logging + DMs + bot-thread replies) =====
+	client.onMessage((event) => {
+		const e = event as {
+			text?: string;
+			channel: string;
+			user?: string;
+			ts: string;
+			thread_ts?: string;
+			channel_type?: string;
+			subtype?: string;
+			bot_id?: string;
+			files?: Array<{ name?: string; url_private_download?: string; url_private?: string }>;
+		};
+
+		// Skip bot messages, edits, etc.
+		if (e.bot_id || !e.user || e.user === botUserId) return;
+		if (e.subtype !== undefined && e.subtype !== "file_share") return;
+		if (!e.text && (!e.files || e.files.length === 0)) return;
+
+		const isDm = e.channel_type === "im" || e.channel_type === "mpim";
+		const isAlwaysChannel = shouldProcessAllMessages(e.channel);
+		const isChannelThread = !isDm && !!e.thread_ts;
+
+		const slackEvent: SlackEvent = {
+			type: isDm ? "dm" : "channel",
+			channel: e.channel,
+			ts: e.ts,
+			user: e.user,
+			text: (e.text || "").replace(/<@[A-Z0-9]+>/gi, "").trim(),
+			files: e.files,
+			threadTs: e.thread_ts,
+		};
+
+		// Determine if we should trigger processing
+		if (!isDm && !isAlwaysChannel && !isChannelThread) return;
+
+		// Skip old messages
+		if (e.ts < startupTs) return;
+
+		if (isChannelThread) {
+			// In bot-owned threads: trigger unless another user (not bot) is mentioned
+			const text = e.text || "";
+			const botMentioned = !!botUserId && text.includes(`<@${botUserId}>`);
+			const anyMention = /<@[A-Z0-9]+>/i.test(text);
+			if (!botMentioned && anyMention) return;
+
+			client
+				.isBotThread(e.channel, e.thread_ts!)
+				.then((owned) => {
+					if (owned) processOrBusy(client, handler, slackEvent, e.channel);
+				})
+				.catch(() => {
+					// Ignore lookup errors — thread messages are best-effort
+				});
+			return;
+		}
+
+		processOrBusy(client, handler, slackEvent, e.channel);
+	});
+}
+
+function processOrBusy(client: SlackClient, handler: RouterHandler, event: SlackEvent, channel: string): void {
+	const text = event.text.toLowerCase().trim();
+
+	// Stop command — execute immediately, don't queue
+	if (text === "stop") {
+		if (handler.isRunning(channel)) {
+			handler.handleStop(channel, event.threadTs).catch((err) => {
+				log.warn(`Stop handler error [${channel}]`, err instanceof Error ? err.message : String(err));
+			});
+		} else {
+			client.postMessage(channel, "_Nothing running_", event.threadTs).catch((err) => {
+				log.warn("Failed to post 'nothing running'", err instanceof Error ? err.message : String(err));
+			});
+		}
+		return;
+	}
+
+	// Check if busy
+	if (handler.isRunning(channel)) {
+		const busyMsg =
+			event.type === "mention"
+				? "_Still thinking. Say `@digby stop` to cancel._"
+				: "_Still thinking. Say `stop` to cancel._";
+		client.postMessage(channel, busyMsg, event.threadTs).catch((err) => {
+			log.warn("Failed to post busy message", err instanceof Error ? err.message : String(err));
+		});
+		return;
+	}
+
+	// Route to handler
+	handler.handleEvent(event).catch((err) => {
+		log.warn(`Handler error [${channel}]`, err instanceof Error ? err.message : String(err));
+	});
+}

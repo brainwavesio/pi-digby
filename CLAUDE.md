@@ -1,55 +1,53 @@
 # CLAUDE.md
 
-Fork of [badlogic/pi-mono](https://github.com/badlogic/pi-mono) for the Brainwaves deployment of pi-mom (Slack bot). Upstream rules in [AGENTS.md](AGENTS.md) still apply.
-
-## What this fork adds
-
-- `deploy/` — Cloudflare Container deployment (Durable Object + Docker)
-- `entrypoint.sh` — mounts R2 persistent storage, seeds MCP config, starts mom
-- `.pi/mcp.json` — default MCP server config (copied to `/data/.pi/mcp.json` on first boot)
-- MCP support via `pi-mcp-adapter` loaded as an extension factory in `packages/mom/src/agent.ts`
+pi-digby — Slack bot for Brainwaves, powered by pi-agent-core + Amazon Bedrock.
 
 ## Architecture
 
 ```
-Cloudflare Worker (deploy/src/index.ts)
-  └─ Durable Object (PiMomContainer)
-       └─ Docker container (Dockerfile)
-            ├─ /app         — built monorepo (ephemeral)
-            ├─ /data        — R2-backed persistent storage (via tigrisfs FUSE mount)
-            └─ entrypoint.sh → node packages/mom/dist/main.js --sandbox=host /data
+AWS ECS Fargate
+  └─ Docker container
+       ├─ /app         — built app (ephemeral)
+       ├─ /data        — EFS-backed persistent storage
+       └─ entrypoint.sh → node dist/main.js /data
 ```
 
-- The bot uses **Amazon Bedrock** (Claude Sonnet) as its LLM provider
-- Slack communication via Socket Mode (no public endpoint needed)
-- Container auto-restarts via cron trigger every 5 minutes
-
-## Key paths in container
-
-| Path | Persistent | Purpose |
-|------|-----------|---------|
-| `/app` | No | Built monorepo, wiped on redeploy |
-| `/data` | Yes (R2) | Workspace: channel dirs, logs, memory, skills, events (R2 FUSE mount) |
-| `/data/.pi/mcp.json` | Yes | MCP server config (agent can edit, survives redeploys) |
-| `/app/.pi/mcp.json` | Symlink | Points to `/data/.pi/mcp.json` at runtime |
+- LLM: **Amazon Bedrock** (Claude Sonnet 4.6)
+- Slack: Socket Mode (no public endpoint)
+- Persistence: EFS at `/data` (channel dirs, logs, memory, skills, events)
+- MCP: `pi-mcp-adapter` loaded via `extensionFactories` in `src/agent/setup.ts`
 
 ## Commands
 
 ```bash
 npm install          # install deps
-npm run build        # build all packages
-npm run check        # lint + typecheck (run after code changes, before committing)
+npm run check        # lint + typecheck (biome + tsgo)
+npm run build        # compile to dist/
 ```
 
-Per AGENTS.md: never run `npm run dev`, `npm run build`, or `npm test` yourself. Use `npm run check` to validate.
+Use `npm run check` to validate changes before committing. The pre-commit hook runs this automatically.
+
+## Key paths
+
+| Path | Purpose |
+|------|---------|
+| `src/` | Harness source code |
+| `src/main.ts` | Entry point |
+| `src/slack/` | Slack client (retry), event router |
+| `src/channel/` | Per-channel queue, RunContext (guaranteed resolve), state |
+| `src/agent/` | Agent setup, event handler, system prompt, skills |
+| `src/tools/` | bash, read, write, edit, attach, react |
+| `src/persistence/` | log.jsonl sync, context.jsonl, MEMORY.md |
+| `src/events/` | Scheduled/periodic event watcher |
+| `deploy/` | AWS CloudFormation + ECS task definition |
+| `docs/` | Migration plan, harness design docs |
+| `.pi/mcp.json` | Default MCP server config |
 
 ## Deploy
 
-Push to `main` triggers `.github/workflows/deploy.yml` → builds Docker image → deploys to Cloudflare.
+Push to `main` triggers `.github/workflows/deploy.yml` → builds Docker image → ECR → ECS service update.
 
-Control panel: `https://pi-digby.<account>.workers.dev/` (start, stop, restart, status).
-
-### Secrets (set via `wrangler secret put` from `deploy/`)
+## Secrets (AWS Secrets Manager)
 
 | Secret | Purpose |
 |--------|---------|
@@ -59,22 +57,11 @@ Control panel: `https://pi-digby.<account>.workers.dev/` (start, stop, restart, 
 | `AWS_SECRET_ACCESS_KEY` | Bedrock credentials |
 | `BROWSER_USE_API_KEY` | browser-use CLI (cloud mode) |
 | `EXA_API_KEY` | Exa search MCP server |
-| `R2_ACCESS_KEY_ID` | R2 API token (for persistent /data mount) |
-| `R2_SECRET_ACCESS_KEY` | R2 API token secret |
 
-## MCP setup
+## Upstream dependencies
 
-MCP servers are configured in `.pi/mcp.json` (repo default) and persisted at `/data/.pi/mcp.json` in the container. The agent can edit the persistent copy at runtime.
-
-The `pi-mcp-adapter` extension is loaded via `extensionFactories` in `packages/mom/src/agent.ts` (dynamic import to avoid tsgo type-checking the `.ts` source files). No package manager resolution needed — it's a direct npm dependency.
-
-`entrypoint.sh` handles env var substitution in URLs (the adapter only interpolates `${VAR}` in headers, not URLs).
-
-## Upstream sync
-
-```bash
-git fetch upstream
-git merge upstream/main
-```
-
-Resolve conflicts in `packages/mom/` and `deploy/` carefully — those are the fork-specific files.
+Consumed as npm packages (not local sources):
+- `@mariozechner/pi-agent-core` — Agent class, tool execution loop
+- `@mariozechner/pi-ai` — Bedrock streaming provider
+- `@mariozechner/pi-coding-agent` — AgentSession, SessionManager, convertToLlm
+- `pi-mcp-adapter` — MCP server integration

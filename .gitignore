@@ -3,42 +3,18 @@ dist/
 *.log
 .DS_Store
 *.tsbuildinfo
-# packages/*/node_modules/
-packages/*/dist/
-packages/*/dist-chrome/
-packages/*/dist-firefox/
+*.cpuprofile
 
 # Environment
 .env
 
-# Editor files
+# Editor
 .vscode/
 .zed/
 .idea/
 *.swp
-*.swo
 *~
 
-# Package specific
-.npm/
-coverage/
-.nyc_output/
-.pi_config/
-tui-debug.log
-compaction-results/
-.opencode/
-syntax.jsonl
-out.jsonl
-pi-*.html
-out.html
-packages/coding-agent/binaries/
-todo.md
-
-# Bot runtime data
+# Data (runtime, not in repo)
 data/
-
-# Deploy
-deploy/node_modules/
-deploy/.wrangler/
-deploy/.dev.vars
-.claude/worktrees/
+plans/
