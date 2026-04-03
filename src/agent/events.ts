@@ -167,7 +167,7 @@ export function createEventHandler(
 					const text = textParts.join("\n");
 					if (text.trim()) {
 						stats.lastStreamedText = text;
-						ctx.respond(text);
+						ctx.replaceMessage(text);
 						if (debugThreading) {
 							ctx.respondInThread(text);
 						}

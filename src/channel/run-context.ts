@@ -90,14 +90,17 @@ export class RunContext {
 	// Public API — streaming operations (called by event handler / runner)
 	// ==========================================================================
 
+	static readonly THINKING_PLACEHOLDER = "\ud83e\udd14 _Thinking_";
+
 	/** Post the initial "thinking" message. Call once at run start. */
 	postThinking(): void {
+		this.accumulatedText = RunContext.THINKING_PLACEHOLDER;
 		this.enqueueUpdate(async () => {
 			try {
 				if (!this.messageTs) {
 					this.messageTs = await this.client.postMessage(
 						this.channel,
-						"\ud83e\udd14 _Thinking_",
+						RunContext.THINKING_PLACEHOLDER,
 						this.replyThreadTs,
 					);
 				}
@@ -107,9 +110,13 @@ export class RunContext {
 		});
 	}
 
-	/** Append text to the message (tool labels, streamed response chunks). */
+	/** Append text to the message. If still showing the thinking placeholder, replaces it. */
 	respond(text: string): void {
-		this.accumulatedText = this.accumulatedText ? `${this.accumulatedText}\n${text}` : text;
+		if (this.accumulatedText === RunContext.THINKING_PLACEHOLDER) {
+			this.accumulatedText = text;
+		} else {
+			this.accumulatedText = this.accumulatedText ? `${this.accumulatedText}\n${text}` : text;
+		}
 		this.enqueuePostOrUpdate(this.truncate(this.displayText, MAX_MESSAGE_LENGTH));
 	}
 

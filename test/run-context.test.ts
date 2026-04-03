@@ -110,6 +110,28 @@ describe("RunContext", () => {
 	// ==========================================================================
 
 	describe("respond", () => {
+		it("replaces thinking placeholder on first respond", async () => {
+			ctx.postThinking();
+			ctx.respond("_\u2192 Reading file_");
+			await ctx.flush();
+
+			const lastUpdate = mock.calls.filter((c) => c.method === "updateMessage").pop()!;
+			expect(lastUpdate.args[2]).toContain("Reading file");
+			expect(lastUpdate.args[2]).not.toContain("Thinking");
+		});
+
+		it("appends after thinking is replaced", async () => {
+			ctx.postThinking();
+			ctx.respond("_\u2192 Step 1_");
+			ctx.respond("_\u2192 Step 2_");
+			await ctx.flush();
+
+			const lastUpdate = mock.calls.filter((c) => c.method === "updateMessage").pop()!;
+			expect(lastUpdate.args[2]).toContain("Step 1");
+			expect(lastUpdate.args[2]).toContain("Step 2");
+			expect(lastUpdate.args[2]).not.toContain("Thinking");
+		});
+
 		it("posts on first call, updates on subsequent", async () => {
 			ctx.respond("line 1");
 			ctx.respond("line 2");
