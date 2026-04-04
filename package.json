@@ -18,12 +18,14 @@
 		"@mariozechner/pi-agent-core": "^0.65.0",
 		"@mariozechner/pi-ai": "^0.65.0",
 		"@mariozechner/pi-coding-agent": "^0.65.0",
+		"@silvia-odwyer/photon-node": "^0.3.4",
 		"@sinclair/typebox": "^0.34.0",
 		"@slack/socket-mode": "^2.0.0",
 		"@slack/web-api": "^7.0.0",
 		"croner": "^9.1.0",
-		"pi-mcp-adapter": "^2.1.2",
-		"sharp": "^0.33.0"
+		"diff": "^8.0.2",
+		"file-type": "^21.1.1",
+		"pi-mcp-adapter": "^2.1.2"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.3.5",

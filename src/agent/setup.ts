@@ -23,7 +23,6 @@ import { mkdir, writeFile } from "fs/promises";
 import { createRequire } from "module";
 import { homedir } from "os";
 import { dirname, join } from "path";
-import sharp from "sharp";
 import type { RunContext } from "../channel/run-context.js";
 import type { RunStats } from "../channel/run-stats.js";
 import type { ChannelState } from "../channel/state.js";
@@ -33,6 +32,8 @@ import { createMomSettingsManager, syncLogToContext } from "../persistence/conte
 import { loadMemory } from "../persistence/memory.js";
 import type { SlackChannel, SlackEvent, SlackUser } from "../slack/types.js";
 import { createTools } from "../tools/index.js";
+import { resizeImage } from "../utils/image-resize.js";
+import { detectSupportedImageMimeTypeFromFile } from "../utils/mime.js";
 import { createEventHandler } from "./events.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { loadSkills } from "./skills.js";
@@ -59,43 +60,6 @@ async function getBedrockApiKey(): Promise<string> {
 		"No AWS credentials found for Bedrock.\n\n" +
 			"Set AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY, AWS_PROFILE, or run on ECS with a task role.",
 	);
-}
-
-// ---------------------------------------------------------------------------
-// Image helpers
-// ---------------------------------------------------------------------------
-
-const IMAGE_MIME_TYPES: Record<string, string> = {
-	jpg: "image/jpeg",
-	jpeg: "image/jpeg",
-	png: "image/png",
-	gif: "image/gif",
-	webp: "image/webp",
-};
-
-function getImageMimeType(filename: string): string | undefined {
-	return IMAGE_MIME_TYPES[filename.toLowerCase().split(".").pop() || ""];
-}
-
-const MAX_IMAGE_DIMENSION = 2000;
-
-async function resizeImageIfNeeded(buffer: Buffer, mimeType: string): Promise<{ data: string; mimeType: string }> {
-	const metadata = await sharp(buffer).metadata();
-	const { width = 0, height = 0 } = metadata;
-
-	if (width <= MAX_IMAGE_DIMENSION && height <= MAX_IMAGE_DIMENSION) {
-		return { data: buffer.toString("base64"), mimeType };
-	}
-
-	const resized = await sharp(buffer)
-		.resize(MAX_IMAGE_DIMENSION, MAX_IMAGE_DIMENSION, {
-			fit: "inside",
-			withoutEnlargement: true,
-		})
-		.jpeg({ quality: 80 })
-		.toBuffer();
-
-	return { data: resized.toString("base64"), mimeType: "image/jpeg" };
 }
 
 // ---------------------------------------------------------------------------
@@ -391,17 +355,33 @@ export async function createChannelRunner(opts: {
 
 				for (const a of event.attachments || []) {
 					const fullPath = join(workingDir, a.local);
-					const mimeType = getImageMimeType(a.local);
+					if (!existsSync(fullPath)) {
+						nonImagePaths.push(fullPath);
+						continue;
+					}
 
-					if (mimeType && existsSync(fullPath)) {
+					// Detect image via binary header sniffing
+					let mimeType: string | null = null;
+					try {
+						mimeType = await detectSupportedImageMimeTypeFromFile(fullPath);
+					} catch {
+						// Not an image or can't read
+					}
+
+					if (mimeType) {
 						try {
 							const raw = readFileSync(fullPath);
-							const resized = await resizeImageIfNeeded(raw, mimeType);
-							imageAttachments.push({
-								type: "image",
-								mimeType: resized.mimeType,
-								data: resized.data,
-							});
+							const base64 = raw.toString("base64");
+							const resized = await resizeImage({ type: "image", data: base64, mimeType });
+							if (resized) {
+								imageAttachments.push({
+									type: "image",
+									mimeType: resized.mimeType,
+									data: resized.data,
+								});
+							} else {
+								nonImagePaths.push(fullPath);
+							}
 						} catch {
 							nonImagePaths.push(fullPath);
 						}
