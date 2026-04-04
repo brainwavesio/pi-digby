@@ -11,6 +11,7 @@ import {
 	AgentSession,
 	AuthStorage,
 	convertToLlm,
+	createExtensionRuntime,
 	DefaultResourceLoader,
 	getAgentDir,
 	ModelRegistry,
@@ -248,7 +249,7 @@ export async function createChannelRunner(opts: {
 		);
 		// Fallback: minimal resource loader without MCP
 		resourceLoader = {
-			getExtensions: () => ({ extensions: [], errors: [], runtime: undefined as any }),
+			getExtensions: () => ({ extensions: [], errors: [], runtime: createExtensionRuntime() }),
 			getSkills: () => ({ skills: [], diagnostics: [] }),
 			getPrompts: () => ({ prompts: [], diagnostics: [] }),
 			getThemes: () => ({ themes: [], diagnostics: [] }),
@@ -489,7 +490,7 @@ export async function createChannelRunner(opts: {
 
 		async shutdown(): Promise<void> {
 			// Emit session_shutdown so extensions (MCP adapter) can close connections
-			const runner = (session as any)._extensionRunner;
+			const runner = session.extensionRunner;
 			if (runner) {
 				try {
 					await runner.emit({ type: "session_shutdown" });
