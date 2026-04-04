@@ -34,7 +34,9 @@ function execCommand(command: string, options?: { timeout?: number; signal?: Abo
 			return;
 		}
 
-		const proc = spawn("bash", ["-c", command], {
+		// setsid creates a new session/process group so we can kill the entire
+		// tree (including child processes) with a single signal via -pid.
+		const proc = spawn("setsid", ["bash", "-c", command], {
 			cwd: process.env.HOME || "/",
 			env: process.env,
 			stdio: ["ignore", "pipe", "pipe"],
@@ -50,17 +52,25 @@ function execCommand(command: string, options?: { timeout?: number; signal?: Abo
 			stderr += data.toString();
 		});
 
+		const killProcessGroup = () => {
+			try {
+				if (proc.pid) process.kill(-proc.pid, "SIGKILL");
+			} catch {
+				// Process already dead
+			}
+		};
+
 		let killed = false;
 		let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
 		if (options?.timeout && options.timeout > 0) {
 			timeoutHandle = setTimeout(() => {
 				killed = true;
-				proc.kill("SIGKILL");
+				killProcessGroup();
 			}, options.timeout * 1000);
 		}
 
 		const abortHandler = () => {
-			proc.kill("SIGKILL");
+			killProcessGroup();
 		};
 		options?.signal?.addEventListener("abort", abortHandler, { once: true });
 
