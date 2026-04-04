@@ -4,9 +4,7 @@ import { spawn } from "child_process";
 import { writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-
-const MAX_LINES = 500;
-const MAX_BYTES = 100 * 1024;
+import { formatSize, truncateTail } from "./truncate.js";
 
 export function createBashTool(): AgentTool<any> {
 	const schema = Type.Object({
@@ -18,7 +16,8 @@ export function createBashTool(): AgentTool<any> {
 	return {
 		name: "bash",
 		label: "bash",
-		description: `Execute a bash command. Output truncated to last ${MAX_LINES} lines or ${MAX_BYTES / 1024}KB. Optionally provide timeout in seconds.`,
+		description:
+			"Execute a bash command. Output truncated to last 2000 lines or 50KB. Optionally provide timeout in seconds.",
 		parameters: schema,
 		execute: async (_toolCallId, { command, timeout }, signal, _onUpdate?) => {
 			const result = await execCommand(command, { timeout, signal });
@@ -79,12 +78,12 @@ function execCommand(command: string, options?: { timeout?: number; signal?: Abo
 			options?.signal?.removeEventListener("abort", abortHandler);
 
 			const fullOutput = stdout + stderr;
-			let output = fullOutput;
-			let truncatedPath: string | undefined;
+			const truncation = truncateTail(fullOutput);
+			let output = truncation.content;
 
-			const lines = output.split("\n");
-			if (lines.length > MAX_LINES || output.length > MAX_BYTES) {
+			if (truncation.truncated) {
 				// Save full output to temp file
+				let truncatedPath: string | undefined;
 				const tmpFile = join(tmpdir(), `bash-output-${Date.now()}.txt`);
 				try {
 					writeFileSync(tmpFile, fullOutput);
@@ -93,12 +92,10 @@ function execCommand(command: string, options?: { timeout?: number; signal?: Abo
 					// Ignore write errors for temp file
 				}
 
-				const truncatedLines = lines.slice(-MAX_LINES);
-				output = truncatedLines.join("\n");
-				if (output.length > MAX_BYTES) {
-					output = output.slice(-MAX_BYTES);
-				}
-				output = `[output truncated — showing last ${MAX_LINES} lines${truncatedPath ? `, full output saved to ${truncatedPath}` : ""}]\n${output}`;
+				const notice = truncatedPath
+					? `[output truncated — showing last ${truncation.outputLines} of ${truncation.totalLines} lines (${formatSize(truncation.totalBytes)} total), full output saved to ${truncatedPath}]`
+					: `[output truncated — showing last ${truncation.outputLines} of ${truncation.totalLines} lines (${formatSize(truncation.totalBytes)} total)]`;
+				output = `${notice}\n${output}`;
 			}
 
 			if (options?.signal?.aborted) {

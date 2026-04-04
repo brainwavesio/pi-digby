@@ -3,6 +3,7 @@
  */
 
 import { formatSkillsForPrompt, loadSkillsFromDir, type Skill } from "@mariozechner/pi-coding-agent";
+import * as log from "../log.js";
 
 /**
  * Load skills from workspace-level and channel-specific skill directories.
@@ -18,13 +19,21 @@ export function loadSkills(channelDir: string, workspacePath: string): Skill[] {
 
 	// Load workspace-level skills (global)
 	const workspaceSkillsDir = `${workspacePath}/skills`;
-	for (const skill of loadSkillsFromDir({ dir: workspaceSkillsDir, source: "workspace" }).skills) {
+	const workspaceResult = loadSkillsFromDir({ dir: workspaceSkillsDir, source: "workspace" });
+	for (const d of workspaceResult.diagnostics) {
+		if (d.type === "error") log.warn(`Skill load error (workspace): ${d.message}`);
+	}
+	for (const skill of workspaceResult.skills) {
 		skillMap.set(skill.name, skill);
 	}
 
 	// Load channel-specific skills (override workspace skills on collision)
 	const channelSkillsDir = `${channelDir}/skills`;
-	for (const skill of loadSkillsFromDir({ dir: channelSkillsDir, source: "channel" }).skills) {
+	const channelResult = loadSkillsFromDir({ dir: channelSkillsDir, source: "channel" });
+	for (const d of channelResult.diagnostics) {
+		if (d.type === "error") log.warn(`Skill load error (channel): ${d.message}`);
+	}
+	for (const skill of channelResult.skills) {
 		skillMap.set(skill.name, skill);
 	}
 
