@@ -113,7 +113,7 @@ describe("SlackSurface", () => {
 	describe("emitProgress", () => {
 		it("replaces thinking placeholder on first emitProgress", async () => {
 			ctx.emitThinking();
-			ctx.emitProgress("_\u2192 Reading file_");
+			ctx.emitProgress("*\u2192 Reading file*");
 			await ctx.flush();
 
 			const lastUpdate = mock.calls.filter((c) => c.method === "updateMessage").pop()!;
@@ -123,8 +123,8 @@ describe("SlackSurface", () => {
 
 		it("appends after thinking is replaced", async () => {
 			ctx.emitThinking();
-			ctx.emitProgress("_\u2192 Step 1_");
-			ctx.emitProgress("_\u2192 Step 2_");
+			ctx.emitProgress("*\u2192 Step 1*");
+			ctx.emitProgress("*\u2192 Step 2*");
 			await ctx.flush();
 
 			const lastUpdate = mock.calls.filter((c) => c.method === "updateMessage").pop()!;
@@ -284,9 +284,9 @@ describe("SlackSurface", () => {
 
 			// Phase 2: tools
 			stats.stepCount = 1;
-			ctx.emitProgress("_\u2192 Reading config_");
+			ctx.emitProgress("*\u2192 Reading config*");
 			stats.stepCount = 2;
-			ctx.emitProgress("_\u2192 Running tests_");
+			ctx.emitProgress("*\u2192 Running tests*");
 
 			// Phase 3: response replaces everything
 			stats.totalCost = 0.45;
@@ -306,7 +306,7 @@ describe("SlackSurface", () => {
 
 		it("thinking → error → reject", async () => {
 			ctx.emitThinking();
-			ctx.emitProgress("_\u2192 Calling API_");
+			ctx.emitProgress("*\u2192 Calling API*");
 			stats.stepCount = 1;
 			ctx.reject("Bedrock timeout");
 			await ctx.flush();
@@ -334,7 +334,7 @@ describe("SlackSurface", () => {
 
 		it("keeps accumulated text when error fires after content", async () => {
 			ctx.emitThinking();
-			ctx.emitProgress("_\u2192 Step 1_");
+			ctx.emitProgress("*\u2192 Step 1*");
 			ctx.reject("Timed out");
 			await ctx.flush();
 

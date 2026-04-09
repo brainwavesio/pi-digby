@@ -38,9 +38,9 @@ function extractToolResultText(result: unknown): string {
 }
 
 /**
- * Format tool arguments for display in Slack thread.
+ * Format tool arguments for display in thread detail.
  */
-function formatToolArgsForSlack(args: Record<string, unknown>): string {
+function formatToolArgs(args: Record<string, unknown>): string {
 	const lines: string[] = [];
 	for (const [key, value] of Object.entries(args)) {
 		if (key === "label") continue;
@@ -97,7 +97,7 @@ export function createEventHandler(
 			});
 
 			log.toolStart(channelId, e.toolName, label);
-			ctx.emitProgress(`_\u2192 ${label}_`);
+			ctx.emitProgress(`*\u2192 ${label}*`);
 		} else if (event.type === "tool_execution_end") {
 			const e = event as any;
 			const resultStr = extractToolResultText(e.result);
@@ -113,7 +113,7 @@ export function createEventHandler(
 			if (debugThreading) {
 				const label = pending?.args ? ((pending.args as Record<string, unknown>).label as string) : undefined;
 				const argsFormatted = pending
-					? formatToolArgsForSlack(pending.args as Record<string, unknown>)
+					? formatToolArgs(pending.args as Record<string, unknown>)
 					: "(args not found)";
 				const duration = (durationMs / 1000).toFixed(1);
 				let threadMessage = `*${e.isError ? "\u2717" : "\u2713"} ${e.toolName}*`;
@@ -125,7 +125,7 @@ export function createEventHandler(
 			}
 
 			if (e.isError) {
-				ctx.emitProgress(`_Error: ${truncate(resultStr, 200)}_`);
+				ctx.emitProgress(`*Error: ${truncate(resultStr, 200)}*`);
 			}
 		} else if (event.type === "message_end") {
 			const e = event as any;
@@ -160,7 +160,7 @@ export function createEventHandler(
 					// Post thinking to thread only
 					if (debugThreading) {
 						for (const thinking of thinkingParts) {
-							ctx.emitDetail(`_${thinking}_`);
+							ctx.emitDetail(`*${thinking}*`);
 						}
 					}
 
@@ -176,7 +176,7 @@ export function createEventHandler(
 			}
 		} else if (event.type === "compaction_start") {
 			log.info(`[${channelId}] Compaction started (reason: ${event.reason})`);
-			ctx.emitProgress("_Compacting context..._");
+			ctx.emitProgress("*Compacting context...*");
 		} else if (event.type === "compaction_end") {
 			if (event.result) {
 				log.info(`[${channelId}] Compaction complete: ${event.result.tokensBefore} tokens compacted`);
@@ -186,12 +186,12 @@ export function createEventHandler(
 		} else if (event.type === "auto_retry_start") {
 			const e = event as any;
 			log.warn(`[${channelId}] Retrying (${e.attempt}/${e.maxAttempts}): ${e.errorMessage}`);
-			ctx.emitProgress(`_Retrying (${e.attempt}/${e.maxAttempts})..._`);
+			ctx.emitProgress(`*Retrying (${e.attempt}/${e.maxAttempts})...*`);
 		} else if (event.type === "auto_retry_end") {
 			const e = event as any;
 			if (!e.success) {
 				log.warn(`[${channelId}] Retries exhausted: ${e.finalError}`);
-				ctx.emitProgress("_Retries exhausted_");
+				ctx.emitProgress("*Retries exhausted*");
 			}
 		}
 	};

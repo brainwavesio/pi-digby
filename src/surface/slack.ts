@@ -6,6 +6,12 @@ import { THINKING_PLACEHOLDER } from "./types.js";
 const MAX_MESSAGE_LENGTH = 35000;
 const MAX_THREAD_MESSAGE_LENGTH = 20000;
 
+/** Convert markdown italic (*text*) to Slack mrkdwn italic (_text_). */
+function mdToMrkdwn(text: string): string {
+	// Convert *italic* to _italic_ but leave **bold** (and ***) untouched
+	return text.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, "_$1_");
+}
+
 export interface MessageTransport {
 	postMessage(channel: string, text: string, threadTs?: string): Promise<string>;
 	updateMessage(channel: string, ts: string, text: string): Promise<void>;
@@ -109,10 +115,11 @@ export class SlackSurface implements AgentSurface {
 	}
 
 	emitProgress(text: string): void {
+		const mrkdwn = mdToMrkdwn(text);
 		if (this.accumulatedText === THINKING_PLACEHOLDER) {
-			this.accumulatedText = text;
+			this.accumulatedText = mrkdwn;
 		} else {
-			this.accumulatedText = this.accumulatedText ? `${this.accumulatedText}\n${text}` : text;
+			this.accumulatedText = this.accumulatedText ? `${this.accumulatedText}\n${mrkdwn}` : mrkdwn;
 		}
 		this.enqueuePostOrUpdate(this.truncate(this.displayText, MAX_MESSAGE_LENGTH));
 	}
@@ -126,7 +133,7 @@ export class SlackSurface implements AgentSurface {
 		this.enqueueUpdate(async () => {
 			if (!this.messageTs) return;
 			try {
-				const truncated = this.truncate(text, MAX_THREAD_MESSAGE_LENGTH);
+				const truncated = this.truncate(mdToMrkdwn(text), MAX_THREAD_MESSAGE_LENGTH);
 				const ts = await this.client.postMessage(this.channel, truncated, this.messageTs);
 				this.threadMessageTs.push(ts);
 			} catch (err) {

@@ -35,9 +35,7 @@ export class LinearSurface implements AgentSurface {
 	}
 
 	emitProgress(text: string): void {
-		// Strip Slack mrkdwn italic wrappers (_text_) since Linear uses Markdown
-		const cleaned = text.replace(/^_(.+)_$/, "$1");
-		this.enqueue(() => this.client.emitThought(this.sessionId, cleaned));
+		this.enqueue(() => this.client.emitThought(this.sessionId, text));
 	}
 
 	emitResponse(text: string): void {
@@ -45,9 +43,7 @@ export class LinearSurface implements AgentSurface {
 	}
 
 	emitDetail(text: string): void {
-		// Convert Slack mrkdwn italic (_text_) to Markdown italic (*text*)
-		const cleaned = text.replace(/(?<!\w)_([^_]+)_(?!\w)/g, "*$1*");
-		this.enqueue(() => this.client.emitThought(this.sessionId, cleaned, false));
+		this.enqueue(() => this.client.emitThought(this.sessionId, text, false));
 	}
 
 	emitReaction(emoji: string, _messageId: string): void {
