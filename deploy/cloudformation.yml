@@ -189,27 +189,20 @@ Resources:
   # Secrets
   # ===========================================================================
 
+  # Secret contents are managed entirely via CLI (aws secretsmanager put-secret-value),
+  # NOT via CloudFormation. The template only declares the resource so CF can provide a
+  # stable ARN via !Ref Secret to the task definition and IAM policies. Do NOT add a
+  # SecretString property — CF will try to reconcile it on every deploy, which either
+  # requires broad Secrets Manager write permissions on the deploy role OR clobbers real
+  # values with placeholders.
+  #
+  # On initial stack creation the secret is created empty. Populate it via:
+  #   aws secretsmanager put-secret-value --secret-id pi-digby/env --secret-string file://pi-digby.json.env
   Secret:
     Type: AWS::SecretsManager::Secret
     Properties:
       Name: pi-digby/env
-      Description: pi-digby environment secrets
-      SecretString: |
-        {
-          "MOM_SLACK_APP_TOKEN": "PLACEHOLDER",
-          "MOM_SLACK_BOT_TOKEN": "PLACEHOLDER",
-          "AWS_ACCESS_KEY_ID": "PLACEHOLDER",
-          "AWS_SECRET_ACCESS_KEY": "PLACEHOLDER",
-          "BROWSER_USE_API_KEY": "PLACEHOLDER",
-          "EXA_API_KEY": "PLACEHOLDER",
-          "GH_TOKEN": "PLACEHOLDER",
-          "DD_API_KEY": "PLACEHOLDER",
-          "DD_APP_KEY": "PLACEHOLDER"
-        }
-        # Additional secrets (LINEAR_API_KEY, LINEAR_WEBHOOK_SECRET, CLOUDFLARE_TUNNEL_TOKEN)
-        # are populated via aws secretsmanager put-secret-value — keeping them out of the
-        # template prevents CloudFormation from trying to manage secret contents (which would
-        # require secretsmanager:GetSecretValue/PutSecretValue permissions on the deploy role).
+      Description: pi-digby environment secrets (values managed via CLI, not CFN)
 
   # ===========================================================================
   # Logging
