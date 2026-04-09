@@ -1,6 +1,6 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "fs";
 import { join } from "path";
-import type { SlackEvent } from "../slack/types.js";
+import type { BotEvent } from "../types.js";
 
 export class ChannelState {
 	readonly channelId: string;
@@ -22,7 +22,7 @@ export class ChannelState {
 	}
 
 	/** Log a user message */
-	logUserMessage(event: SlackEvent, userName?: string, displayName?: string): void {
+	logUserMessage(event: BotEvent, userName?: string, displayName?: string): void {
 		this.appendLog({
 			date: new Date(parseFloat(event.ts) * 1000).toISOString(),
 			ts: event.ts,

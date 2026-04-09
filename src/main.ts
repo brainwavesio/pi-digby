@@ -4,16 +4,17 @@ import { mkdirSync, writeFileSync } from "fs";
 import { dirname, join, resolve } from "path";
 import { getOrCreateRunner, shutdownAllRunners } from "./agent/setup.js";
 import { ChannelQueue } from "./channel/queue.js";
-import { RunContext } from "./channel/run-context.js";
 import { createRunStats } from "./channel/run-stats.js";
 import { ChannelState } from "./channel/state.js";
 import { initConfig } from "./config.js";
 import { createEventsWatcher } from "./events/watcher.js";
-import { startHealthServer } from "./health.js";
+import { HttpServer } from "./http-server.js";
 import * as log from "./log.js";
 import { SlackClient } from "./slack/client.js";
 import { type RouterHandler, setupRouter } from "./slack/router.js";
 import type { Attachment, SlackEvent } from "./slack/types.js";
+import { SlackSurface } from "./surface/slack.js";
+import { THINKING_PLACEHOLDER } from "./surface/types.js";
 
 // ============================================================================
 // Config
@@ -121,11 +122,11 @@ async function handleEvent(event: SlackEvent, client: SlackClient, _isEvent?: bo
 			? (event.threadTs ?? event.ts) // always thread in channels
 			: event.threadTs; // DMs: thread only if already in one
 
-	// Stats shared between RunContext (footer) and event handler (updates)
+	// Stats shared between surface (footer) and event handler (updates)
 	const stats = createRunStats();
 
-	// Create RunContext — guaranteed to resolve via finally
-	const ctx = new RunContext(client, event.channel, stats, replyThreadTs);
+	// Create surface — guaranteed to resolve via finally
+	const ctx = new SlackSurface(client, event.channel, stats, replyThreadTs);
 
 	state.running = true;
 	state.stopRequested = false;
@@ -133,7 +134,7 @@ async function handleEvent(event: SlackEvent, client: SlackClient, _isEvent?: bo
 	log.info(`[${event.channel}] Starting run: ${event.text.substring(0, 50)}`);
 
 	try {
-		ctx.postThinking();
+		ctx.emitThinking();
 
 		const result = await runner.run(
 			ctx,
@@ -162,7 +163,7 @@ async function handleEvent(event: SlackEvent, client: SlackClient, _isEvent?: bo
 		// Log bot response to log.jsonl (skip thinking-only or deleted messages)
 		const finalText = ctx.finalText;
 		const messageTs = ctx.finalMessageTs;
-		if (finalText && finalText !== RunContext.THINKING_PLACEHOLDER && messageTs && !ctx.wasDeleted) {
+		if (finalText && finalText !== THINKING_PLACEHOLDER && messageTs && !ctx.wasDeleted) {
 			state.channelState.logBotResponse(finalText, messageTs, replyThreadTs);
 		}
 
@@ -243,8 +244,9 @@ async function backfillAllChannels(): Promise<void> {
 
 log.info(`Starting pi-digby v2 (workingDir: ${workingDir})`);
 
-// Start health check server (ECS container health check)
-startHealthServer();
+// Start HTTP server (health checks + webhooks)
+const httpServer = new HttpServer();
+httpServer.start();
 
 // Start Slack client
 await client.start();
@@ -262,6 +264,7 @@ setupRouter(client, handler, startupTs);
 const eventsWatcher = createEventsWatcher(workingDir, ({ channelId, text, filename }) => {
 	const event: SlackEvent = {
 		type: "mention",
+		source: "slack",
 		channel: channelId,
 		ts: (Date.now() / 1000).toFixed(6),
 		user: "system",
@@ -276,6 +279,67 @@ const eventsWatcher = createEventsWatcher(workingDir, ({ channelId, text, filena
 	return true;
 });
 eventsWatcher.start();
+
+// ============================================================================
+// Linear agent (optional — only if credentials are present)
+// ============================================================================
+
+const LINEAR_API_KEY = process.env.LINEAR_API_KEY;
+const LINEAR_WEBHOOK_SECRET = process.env.LINEAR_WEBHOOK_SECRET;
+
+if (LINEAR_API_KEY && LINEAR_WEBHOOK_SECRET) {
+	const { LinearClient } = await import("./linear/client.js");
+	const { createLinearWebhookHandler } = await import("./linear/router.js");
+	const { LinearSurface } = await import("./surface/linear.js");
+
+	const linearClient = new LinearClient(LINEAR_API_KEY);
+
+	const linearHandler = createLinearWebhookHandler(LINEAR_WEBHOOK_SECRET, {
+		async handleEvent(event) {
+			const state = getChannelRunState(event.channel);
+			state.queue.enqueue(async () => {
+				const runner = await getOrCreateRunner(event.channel, state.channelState.channelDir, workingDir);
+				const stats = createRunStats();
+				const sessionId = event.channel.replace("linear:", "");
+				const ctx = new LinearSurface(linearClient, sessionId, stats);
+
+				state.running = true;
+				state.stopRequested = false;
+
+				log.info(`[${event.channel}] Starting Linear run: ${event.text.substring(0, 50)}`);
+
+				try {
+					ctx.emitThinking();
+
+					const result = await runner.run(ctx, event, state.channelState, [], [], undefined, stats);
+
+					if (result.stopReason === "aborted" && state.stopRequested) {
+						log.info(`[${event.channel}] Linear run stopped`);
+					}
+				} catch (err) {
+					const errMsg = err instanceof Error ? err.message : String(err);
+					log.warn(`[${event.channel}] Linear run error`, errMsg);
+					ctx.reject(`Something went wrong: ${errMsg.substring(0, 500)}`);
+				} finally {
+					ctx.resolve();
+					await ctx.flush();
+
+					const finalText = ctx.finalText;
+					if (finalText && finalText !== THINKING_PLACEHOLDER && !ctx.wasDeleted) {
+						state.channelState.logBotResponse(finalText, String(Date.now() / 1000));
+					}
+
+					state.running = false;
+				}
+			});
+		},
+	});
+
+	httpServer.registerWebhook("/webhooks/linear", linearHandler);
+	log.info("Linear agent enabled");
+} else {
+	log.info("Linear agent disabled (missing LINEAR_API_KEY/LINEAR_WEBHOOK_SECRET)");
+}
 
 log.info("Ready");
 

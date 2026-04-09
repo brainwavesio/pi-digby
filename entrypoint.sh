@@ -46,4 +46,10 @@ ln -sfn /data/.cache/qmd /root/.cache/qmd
 # Background: build initial index
 QMD_CACHE_DIR=/data/.cache/qmd qmd embed &
 
+# Start Cloudflare Tunnel (if configured)
+if [ -n "$CLOUDFLARE_TUNNEL_TOKEN" ]; then
+  cloudflared tunnel run --token "$CLOUDFLARE_TUNNEL_TOKEN" &
+  echo "Cloudflare tunnel started"
+fi
+
 exec node dist/main.js /data

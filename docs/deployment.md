@@ -51,6 +51,16 @@ aws secretsmanager put-secret-value \
   }'
 ```
 
+or
+
+```bash
+aws secretsmanager put-secret-value \
+  --profile brainwaves \
+  --region us-east-1 \
+  --secret-id pi-digby/env \
+  --secret-string file://pi-digby.json.env
+```
+
 View current secrets:
 ```bash
 aws secretsmanager get-secret-value \

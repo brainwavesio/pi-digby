@@ -1,10 +1,12 @@
+import type { RunStats } from "../channel/run-stats.js";
 import * as log from "../log.js";
-import type { RunStats } from "./run-stats.js";
+import type { AgentSurface } from "./types.js";
+import { THINKING_PLACEHOLDER } from "./types.js";
 
 const MAX_MESSAGE_LENGTH = 35000;
 const MAX_THREAD_MESSAGE_LENGTH = 20000;
 
-export interface SlackClientLike {
+export interface MessageTransport {
 	postMessage(channel: string, text: string, threadTs?: string): Promise<string>;
 	updateMessage(channel: string, ts: string, text: string): Promise<void>;
 	deleteMessage(channel: string, ts: string): Promise<void>;
@@ -13,16 +15,18 @@ export interface SlackClientLike {
 }
 
 /**
+ * Slack implementation of AgentSurface.
+ *
  * Owns the lifecycle of a single Slack message for one agent run.
  *
  * Guarantees:
- * - Every run ends with exactly one terminal op: resolve(), reject(), or deleteMessage()
+ * - Every run ends with exactly one terminal op: resolve(), reject(), or suppress()
  * - dispose() is the safety net — if no terminal op was called, it rejects
  * - The footer (steps/cost) is auto-computed from stats; callers never compose it
  * - All Slack operations are serialized through updateChain
  */
-export class RunContext {
-	private client: SlackClientLike;
+export class SlackSurface implements AgentSurface {
+	private client: MessageTransport;
 	private channel: string;
 	private replyThreadTs?: string;
 	private stats: RunStats;
@@ -35,7 +39,7 @@ export class RunContext {
 	private threadMessageTs: string[] = [];
 	private updateChain: Promise<void> = Promise.resolve();
 
-	constructor(client: SlackClientLike, channel: string, stats: RunStats, replyThreadTs?: string) {
+	constructor(client: MessageTransport, channel: string, stats: RunStats, replyThreadTs?: string) {
 		this.client = client;
 		this.channel = channel;
 		this.stats = stats;
@@ -69,7 +73,7 @@ export class RunContext {
 
 	private enqueueUpdate(fn: () => Promise<void>): void {
 		this.updateChain = this.updateChain.then(fn).catch((err) => {
-			log.warn("[run-context] Slack update error", err instanceof Error ? err.message : String(err));
+			log.warn("[slack-surface] Slack update error", err instanceof Error ? err.message : String(err));
 		});
 	}
 
@@ -82,38 +86,30 @@ export class RunContext {
 					this.messageTs = await this.client.postMessage(this.channel, display, this.replyThreadTs);
 				}
 			} catch (err) {
-				log.warn("[run-context] post/update error", err instanceof Error ? err.message : String(err));
+				log.warn("[slack-surface] post/update error", err instanceof Error ? err.message : String(err));
 			}
 		});
 	}
 
 	// ==========================================================================
-	// Public API — streaming operations (called by event handler / runner)
+	// AgentSurface — streaming operations
 	// ==========================================================================
 
-	static readonly THINKING_PLACEHOLDER = "\ud83e\udd14 _Thinking_";
-
-	/** Post the initial "thinking" message. Call once at run start. */
-	postThinking(): void {
-		this.accumulatedText = RunContext.THINKING_PLACEHOLDER;
+	emitThinking(): void {
+		this.accumulatedText = THINKING_PLACEHOLDER;
 		this.enqueueUpdate(async () => {
 			try {
 				if (!this.messageTs) {
-					this.messageTs = await this.client.postMessage(
-						this.channel,
-						RunContext.THINKING_PLACEHOLDER,
-						this.replyThreadTs,
-					);
+					this.messageTs = await this.client.postMessage(this.channel, THINKING_PLACEHOLDER, this.replyThreadTs);
 				}
 			} catch (err) {
-				log.warn("[run-context] postThinking error", err instanceof Error ? err.message : String(err));
+				log.warn("[slack-surface] emitThinking error", err instanceof Error ? err.message : String(err));
 			}
 		});
 	}
 
-	/** Append text to the message. If still showing the thinking placeholder, replaces it. */
-	respond(text: string): void {
-		if (this.accumulatedText === RunContext.THINKING_PLACEHOLDER) {
+	emitProgress(text: string): void {
+		if (this.accumulatedText === THINKING_PLACEHOLDER) {
 			this.accumulatedText = text;
 		} else {
 			this.accumulatedText = this.accumulatedText ? `${this.accumulatedText}\n${text}` : text;
@@ -121,14 +117,12 @@ export class RunContext {
 		this.enqueuePostOrUpdate(this.truncate(this.displayText, MAX_MESSAGE_LENGTH));
 	}
 
-	/** Replace all accumulated text (for final response). */
-	replaceMessage(text: string): void {
+	emitResponse(text: string): void {
 		this.accumulatedText = text;
 		this.enqueuePostOrUpdate(this.truncate(this.displayText, MAX_MESSAGE_LENGTH));
 	}
 
-	/** Post a reply in the thread under the bot's main message. */
-	respondInThread(text: string): void {
+	emitDetail(text: string): void {
 		this.enqueueUpdate(async () => {
 			if (!this.messageTs) return;
 			try {
@@ -136,24 +130,22 @@ export class RunContext {
 				const ts = await this.client.postMessage(this.channel, truncated, this.messageTs);
 				this.threadMessageTs.push(ts);
 			} catch (err) {
-				log.warn("[run-context] respondInThread error", err instanceof Error ? err.message : String(err));
+				log.warn("[slack-surface] emitDetail error", err instanceof Error ? err.message : String(err));
 			}
 		});
 	}
 
-	/** React to a specific message with an emoji. */
-	addReaction(emoji: string, triggerTs: string): void {
+	emitReaction(emoji: string, triggerTs: string): void {
 		this.enqueueUpdate(async () => {
 			try {
 				await this.client.addReaction(this.channel, triggerTs, emoji);
 			} catch (err) {
-				log.warn("[run-context] addReaction error", err instanceof Error ? err.message : String(err));
+				log.warn("[slack-surface] emitReaction error", err instanceof Error ? err.message : String(err));
 			}
 		});
 	}
 
-	/** Upload a file to the channel. */
-	uploadFile(filePath: string, title?: string): void {
+	emitFile(filePath: string, title?: string): void {
 		this.enqueueUpdate(async () => {
 			try {
 				await this.client.uploadFile(
@@ -163,7 +155,7 @@ export class RunContext {
 					this.replyThreadTs || this.messageTs || undefined,
 				);
 			} catch (err) {
-				log.warn("[run-context] uploadFile error", err instanceof Error ? err.message : String(err));
+				log.warn("[slack-surface] emitFile error", err instanceof Error ? err.message : String(err));
 			}
 		});
 	}
@@ -172,7 +164,6 @@ export class RunContext {
 	// Terminal operations — exactly one fires per run
 	// ==========================================================================
 
-	/** Mark run complete. Sets streaming=false so footer shows cost instead of "streaming". */
 	resolve(): void {
 		if (this.resolved) return;
 		this.resolved = true;
@@ -180,13 +171,11 @@ export class RunContext {
 		this.enqueuePostOrUpdate(this.truncate(this.displayText, MAX_MESSAGE_LENGTH));
 	}
 
-	/** Mark run failed. Appends error to message, sets streaming=false. */
 	reject(error: string): void {
 		if (this.resolved) return;
 		this.resolved = true;
 		this.streaming = false;
-		// Clear thinking placeholder so error stands alone
-		if (this.accumulatedText === RunContext.THINKING_PLACEHOLDER) {
+		if (this.accumulatedText === THINKING_PLACEHOLDER) {
 			this.accumulatedText = "";
 		}
 		this.accumulatedText = this.accumulatedText
@@ -195,8 +184,7 @@ export class RunContext {
 		this.enqueuePostOrUpdate(this.truncate(this.displayText, MAX_MESSAGE_LENGTH));
 	}
 
-	/** Delete the message entirely (for [SILENT] responses). Terminal. */
-	deleteMessage(): void {
+	suppress(): void {
 		if (this.resolved) return;
 		this.resolved = true;
 		this.streaming = false;
@@ -212,7 +200,7 @@ export class RunContext {
 					this.messageTs = null;
 				}
 			} catch (err) {
-				log.warn("[run-context] deleteMessage error", err instanceof Error ? err.message : String(err));
+				log.warn("[slack-surface] suppress error", err instanceof Error ? err.message : String(err));
 			}
 		});
 	}
@@ -221,12 +209,10 @@ export class RunContext {
 	// Lifecycle
 	// ==========================================================================
 
-	/** Wait for all queued Slack operations to complete. */
 	async flush(): Promise<void> {
 		await this.updateChain;
 	}
 
-	/** Safety net: if no terminal op was called, reject with a default message. */
 	dispose(): void {
 		if (!this.resolved) {
 			this.reject("Run ended unexpectedly");
@@ -237,17 +223,14 @@ export class RunContext {
 	// Readonly getters for post-run logging
 	// ==========================================================================
 
-	/** Final message timestamp (null if never posted). */
 	get finalMessageTs(): string | null {
 		return this.messageTs;
 	}
 
-	/** Final accumulated text (what the user sees, without footer). */
 	get finalText(): string {
 		return this.accumulatedText;
 	}
 
-	/** Whether the message was deleted (SILENT response). */
 	get wasDeleted(): boolean {
 		return this.deleted;
 	}

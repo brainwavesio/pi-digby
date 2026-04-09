@@ -14,6 +14,7 @@
 		"prepare": "husky"
 	},
 	"dependencies": {
+		"@linear/sdk": "^81.0.0",
 		"@mariozechner/jiti": "^2.6.5",
 		"@mariozechner/pi-agent-core": "^0.65.0",
 		"@mariozechner/pi-ai": "^0.65.0",

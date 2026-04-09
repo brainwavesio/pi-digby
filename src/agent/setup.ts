@@ -23,15 +23,16 @@ import { mkdir, writeFile } from "fs/promises";
 import { createRequire } from "module";
 import { homedir } from "os";
 import { dirname, join } from "path";
-import type { RunContext } from "../channel/run-context.js";
 import type { RunStats } from "../channel/run-stats.js";
 import type { ChannelState } from "../channel/state.js";
 import { getRunTimeout } from "../config.js";
 import * as log from "../log.js";
 import { createMomSettingsManager, syncLogToContext } from "../persistence/context.js";
 import { loadMemory } from "../persistence/memory.js";
-import type { SlackChannel, SlackEvent, SlackUser } from "../slack/types.js";
+import type { SlackChannel, SlackUser } from "../slack/types.js";
+import type { AgentSurface } from "../surface/types.js";
 import { createTools } from "../tools/index.js";
+import type { BotEvent } from "../types.js";
 import { resizeImage } from "../utils/image-resize.js";
 import { detectSupportedImageMimeTypeFromFile } from "../utils/mime.js";
 import { createEventHandler } from "./events.js";
@@ -95,8 +96,8 @@ function formatTimestamp(): string {
 
 export interface ChannelRunner {
 	run(
-		ctx: RunContext,
-		event: SlackEvent,
+		ctx: AgentSurface,
+		event: BotEvent,
 		channelState: ChannelState,
 		channels: SlackChannel[],
 		users: SlackUser[],
@@ -257,8 +258,8 @@ export async function createChannelRunner(opts: {
 	// -----------------------------------------------------------------------
 	return {
 		async run(
-			ctx: RunContext,
-			event: SlackEvent,
+			ctx: AgentSurface,
+			event: BotEvent,
 			_channelState: ChannelState,
 			channels: SlackChannel[],
 			users: SlackUser[],
@@ -266,7 +267,7 @@ export async function createChannelRunner(opts: {
 			stats?: RunStats,
 		): Promise<RunResult> {
 			abortRequested = false;
-			// Use caller's stats (shared with RunContext for footer) or create local
+			// Use caller's stats (shared with AgentSurface for footer) or create local
 			const runStats: RunStats = stats || {
 				stepCount: 0,
 				totalCost: 0,
@@ -301,6 +302,7 @@ export async function createChannelRunner(opts: {
 				channels,
 				users,
 				skills,
+				source: event.source,
 			});
 
 			// If MCP config changed, reload extensions
@@ -329,13 +331,13 @@ export async function createChannelRunner(opts: {
 
 			// Wire tool contexts for this run
 			toolContexts.attach.uploadFn = async (filePath: string, title?: string) => {
-				ctx.uploadFile(filePath, title);
+				ctx.emitFile(filePath, title);
 			};
 			toolContexts.react.reactionFn = async (emoji: string) => {
-				ctx.addReaction(emoji, event.ts);
+				ctx.emitReaction(emoji, event.ts);
 			};
 
-			// Create per-run event handler (shares stats reference with RunContext for footer)
+			// Create per-run event handler (shares stats reference with AgentSurface for footer)
 			const handler = createEventHandler(ctx, channelId, runStats);
 			const unsubscribe = session.subscribe(handler);
 
@@ -391,7 +393,7 @@ export async function createChannelRunner(opts: {
 				}
 
 				if (nonImagePaths.length > 0) {
-					userMessage += `\n\n<slack_attachments>\n${nonImagePaths.join("\n")}\n</slack_attachments>`;
+					userMessage += `\n\n<attachments>\n${nonImagePaths.join("\n")}\n</attachments>`;
 				}
 
 				// Debug: write context to last_prompt.jsonl
@@ -426,11 +428,11 @@ export async function createChannelRunner(opts: {
 				// Wait for Slack update queue to flush
 				await ctx.flush();
 
-				// Handle final result — footer is auto-appended by RunContext
+				// Handle final result — footer is auto-appended by AgentSurface
 				if (runStats.stopReason === "error" && runStats.errorMessage) {
-					ctx.replaceMessage(`_Sorry, something went wrong: ${truncate(runStats.errorMessage, 500)}_`);
+					ctx.emitResponse(`_Sorry, something went wrong: ${truncate(runStats.errorMessage, 500)}_`);
 				} else if (runStats.stopReason === "max_tokens") {
-					ctx.replaceMessage(
+					ctx.emitResponse(
 						"_Ran out of space mid-response. Try asking me to continue, or break it into smaller steps._",
 					);
 				} else {
@@ -446,10 +448,10 @@ export async function createChannelRunner(opts: {
 
 					// Check for [SILENT] marker
 					if (finalText.trim() === "[SILENT]" || finalText.trim().startsWith("[SILENT]")) {
-						ctx.deleteMessage();
+						ctx.suppress();
 						log.info(`[${channelId}] Silent response - deleted message`);
 					} else if (finalText.trim()) {
-						ctx.replaceMessage(finalText);
+						ctx.emitResponse(finalText);
 					}
 				}
 

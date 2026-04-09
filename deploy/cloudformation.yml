@@ -204,7 +204,10 @@ Resources:
           "EXA_API_KEY": "PLACEHOLDER",
           "GH_TOKEN": "PLACEHOLDER",
           "DD_API_KEY": "PLACEHOLDER",
-          "DD_APP_KEY": "PLACEHOLDER"
+          "DD_APP_KEY": "PLACEHOLDER",
+          "LINEAR_API_KEY": "PLACEHOLDER",
+          "LINEAR_WEBHOOK_SECRET": "PLACEHOLDER",
+          "CLOUDFLARE_TUNNEL_TOKEN": "PLACEHOLDER"
         }
 
   # ===========================================================================
@@ -507,6 +510,12 @@ Resources:
               ValueFrom: !Sub "${Secret}:DD_API_KEY::"
             - Name: DD_APP_KEY
               ValueFrom: !Sub "${Secret}:DD_APP_KEY::"
+            - Name: LINEAR_API_KEY
+              ValueFrom: !Sub "${Secret}:LINEAR_API_KEY::"
+            - Name: LINEAR_WEBHOOK_SECRET
+              ValueFrom: !Sub "${Secret}:LINEAR_WEBHOOK_SECRET::"
+            - Name: CLOUDFLARE_TUNNEL_TOKEN
+              ValueFrom: !Sub "${Secret}:CLOUDFLARE_TUNNEL_TOKEN::"
           HealthCheck:
             Command:
               - CMD-SHELL

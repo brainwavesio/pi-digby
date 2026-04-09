@@ -1,5 +1,5 @@
 /**
- * Mutable stats object shared between RunContext (for footer rendering)
+ * Mutable stats object shared between the surface (for footer rendering)
  * and the event handler (which updates counts during the run).
  */
 export interface RunStats {
