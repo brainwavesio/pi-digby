@@ -204,11 +204,12 @@ Resources:
           "EXA_API_KEY": "PLACEHOLDER",
           "GH_TOKEN": "PLACEHOLDER",
           "DD_API_KEY": "PLACEHOLDER",
-          "DD_APP_KEY": "PLACEHOLDER",
-          "LINEAR_API_KEY": "PLACEHOLDER",
-          "LINEAR_WEBHOOK_SECRET": "PLACEHOLDER",
-          "CLOUDFLARE_TUNNEL_TOKEN": "PLACEHOLDER"
+          "DD_APP_KEY": "PLACEHOLDER"
         }
+        # Additional secrets (LINEAR_API_KEY, LINEAR_WEBHOOK_SECRET, CLOUDFLARE_TUNNEL_TOKEN)
+        # are populated via aws secretsmanager put-secret-value — keeping them out of the
+        # template prevents CloudFormation from trying to manage secret contents (which would
+        # require secretsmanager:GetSecretValue/PutSecretValue permissions on the deploy role).
 
   # ===========================================================================
   # Logging
