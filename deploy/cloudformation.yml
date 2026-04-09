@@ -412,12 +412,17 @@ Resources:
                   - secretsmanager:Describe*
                   - backup:Describe*
                 Resource: "*"
-              # Secrets Manager: CF needs GetSecretValue to diff the Secret resource's
-              # SecretString property during stack updates, even if the template value
-              # hasn't changed. Scoped to just the pi-digby secret.
+              # Secrets Manager: CF needs these to manage the Secret resource during
+              # stack updates. Note: CF will try to reconcile SecretString to the template
+              # literal, which means it may clobber real values populated via CLI. Real
+              # values should be re-applied after any stack update that changes the Secret.
+              # Scoped to just the pi-digby secret.
               - Effect: Allow
                 Action:
                   - secretsmanager:GetSecretValue
+                  - secretsmanager:PutSecretValue
+                  - secretsmanager:UpdateSecret
+                  - secretsmanager:TagResource
                 Resource: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pi-digby/env-*"
               # Scoped write actions for pi-digby resources
               - Effect: Allow
