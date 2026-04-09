@@ -299,6 +299,10 @@ if (LINEAR_API_KEY && LINEAR_WEBHOOK_SECRET) {
 			const state = getChannelRunState(event.channel);
 			state.queue.enqueue(async () => {
 				const runner = await getOrCreateRunner(event.channel, state.channelState.channelDir, workingDir);
+
+				// Log user message (mirrors Slack path)
+				state.channelState.logUserMessage(event);
+
 				const stats = createRunStats();
 				const sessionId = event.channel.replace("linear:", "");
 				const ctx = new LinearSurface(linearClient, sessionId, stats);
@@ -332,6 +336,16 @@ if (LINEAR_API_KEY && LINEAR_WEBHOOK_SECRET) {
 					state.running = false;
 				}
 			});
+		},
+
+		async handleStop(channelId) {
+			const state = channelStates.get(channelId);
+			if (state?.running) {
+				state.stopRequested = true;
+				const runner = await getOrCreateRunner(channelId, state.channelState.channelDir, workingDir);
+				runner.abort();
+				log.info(`[${channelId}] Linear stop requested`);
+			}
 		},
 	});
 

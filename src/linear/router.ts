@@ -5,6 +5,7 @@ import type { BotEvent } from "../types.js";
 
 export interface LinearRouterHandler {
 	handleEvent(event: BotEvent): Promise<void>;
+	handleStop(channelId: string): Promise<void>;
 }
 
 /**
@@ -58,8 +59,9 @@ export function createLinearWebhookHandler(
 
 			// Check for stop signal
 			if (activity.signal === "stop") {
-				log.info(`[linear] Stop signal for session ${sessionId}`);
-				// TODO: wire up abort for Linear sessions
+				handler.handleStop(channelId).catch((err) => {
+					log.warn(`[linear] stop error: ${err instanceof Error ? err.message : String(err)}`);
+				});
 				return;
 			}
 
