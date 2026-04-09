@@ -7,9 +7,13 @@ type WebhookHandler = (req: IncomingMessage, res: ServerResponse) => Promise<voi
  * HTTP server for health checks and webhook endpoints.
  *
  * Routes:
- * - POST /webhooks/* → registered webhook handlers
- * - GET /health → 200 "ok"
- * - * → 200 "ok" (backward compat for ECS health check on any path)
+ * - POST /webhooks/<name> → registered handler, or 404 if none registered
+ * - GET / and GET /health → 200 "ok" (ECS health check)
+ * - everything else → 404
+ *
+ * The 404 on unregistered POSTs matters: a silent 200 "ok" looks like a
+ * successful delivery to upstream webhook senders (e.g. Linear) even when
+ * the handler was never wired up due to a missing secret. Fail loud instead.
  */
 export class HttpServer {
 	private webhooks = new Map<string, WebhookHandler>();
@@ -24,25 +28,40 @@ export class HttpServer {
 			const path = req.url?.split("?")[0] || "/";
 
 			// Webhook routes
-			if (req.method === "POST") {
-				const handler = this.webhooks.get(path);
-				if (handler) {
-					try {
-						await handler(req, res);
-					} catch (err) {
-						log.warn(`[http] Webhook error on ${path}`, err instanceof Error ? err.message : String(err));
-						if (!res.headersSent) {
-							res.writeHead(500, { "Content-Type": "text/plain" });
-							res.end("Internal server error");
-						}
-					}
+			if (path.startsWith("/webhooks/")) {
+				if (req.method !== "POST") {
+					res.writeHead(405, { "Content-Type": "text/plain", Allow: "POST" });
+					res.end("Method not allowed");
 					return;
 				}
+				const handler = this.webhooks.get(path);
+				if (!handler) {
+					log.warn(`[http] No handler registered for ${path} — returning 404`);
+					res.writeHead(404, { "Content-Type": "text/plain" });
+					res.end("Not found");
+					return;
+				}
+				try {
+					await handler(req, res);
+				} catch (err) {
+					log.warn(`[http] Webhook error on ${path}`, err instanceof Error ? err.message : String(err));
+					if (!res.headersSent) {
+						res.writeHead(500, { "Content-Type": "text/plain" });
+						res.end("Internal server error");
+					}
+				}
+				return;
 			}
 
-			// Health check / default
-			res.writeHead(200, { "Content-Type": "text/plain" });
-			res.end("ok");
+			// Health check (ECS hits "/" by default)
+			if (req.method === "GET" && (path === "/" || path === "/health")) {
+				res.writeHead(200, { "Content-Type": "text/plain" });
+				res.end("ok");
+				return;
+			}
+
+			res.writeHead(404, { "Content-Type": "text/plain" });
+			res.end("Not found");
 		});
 
 		server.listen(port, () => {
