@@ -70,6 +70,30 @@ function truncate(text: string, maxLen: number): string {
 }
 
 /**
+ * Build a human-readable label for a tool call. The pi-mcp-adapter registers
+ * a single gateway tool called "mcp" that proxies every MCP server call through
+ * a `tool` arg, so without unwrapping it every MCP invocation looks identical
+ * in the surface ("→ mcp"). Surface what the gateway is actually doing.
+ */
+function buildToolLabel(toolName: string, args: Record<string, unknown>): string {
+	if (typeof args.label === "string" && args.label) return args.label;
+
+	if (toolName === "mcp") {
+		const tool = typeof args.tool === "string" ? args.tool : undefined;
+		const server = typeof args.server === "string" ? args.server : undefined;
+		if (tool) return server ? `mcp ${server}/${tool}` : `mcp ${tool}`;
+		if (typeof args.search === "string") return `mcp search "${args.search}"`;
+		if (typeof args.describe === "string") return `mcp describe ${args.describe}`;
+		if (typeof args.connect === "string") return `mcp connect ${args.connect}`;
+		if (server) return `mcp list ${server}`;
+		if (typeof args.action === "string") return `mcp ${args.action}`;
+		return "mcp status";
+	}
+
+	return toolName;
+}
+
+/**
  * Create an event handler that bridges AgentSession events to the AgentSurface.
  *
  * @param ctx - The AgentSurface for output
@@ -88,7 +112,7 @@ export function createEventHandler(
 		if (event.type === "tool_execution_start") {
 			const e = event as any;
 			const args = (e.args || {}) as Record<string, unknown>;
-			const label = (args.label as string) || e.toolName;
+			const label = buildToolLabel(e.toolName, args);
 
 			pendingTools.set(e.toolCallId, {
 				toolName: e.toolName,

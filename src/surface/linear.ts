@@ -35,7 +35,11 @@ export class LinearSurface implements AgentSurface {
 	}
 
 	emitProgress(text: string): void {
-		this.enqueue(() => this.client.emitThought(this.sessionId, text));
+		// Persistent: progress lines are the headline timeline of the session
+		// (tool starts, retries, compaction, errors). Each one stacks rather
+		// than replacing the previous, so the user can scroll back through
+		// what the agent actually did.
+		this.enqueue(() => this.client.emitThought(this.sessionId, text, false));
 	}
 
 	emitResponse(text: string): void {
@@ -47,11 +51,13 @@ export class LinearSurface implements AgentSurface {
 	}
 
 	emitReaction(emoji: string, _messageId: string): void {
-		this.enqueue(() => this.client.emitThought(this.sessionId, emoji));
+		// Persistent: emoji reactions are infrequent and worth keeping.
+		this.enqueue(() => this.client.emitThought(this.sessionId, emoji, false));
 	}
 
 	emitFile(path: string, title?: string): void {
-		this.enqueue(() => this.client.emitThought(this.sessionId, `File: ${title || path}`));
+		// Persistent: file references should be visible after the run completes.
+		this.enqueue(() => this.client.emitThought(this.sessionId, `File: ${title || path}`, false));
 	}
 
 	resolve(): void {
