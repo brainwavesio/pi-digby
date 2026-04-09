@@ -116,11 +116,11 @@ export function createEventHandler(
 					? formatToolArgs(pending.args as Record<string, unknown>)
 					: "(args not found)";
 				const duration = (durationMs / 1000).toFixed(1);
-				let threadMessage = `*${e.isError ? "\u2717" : "\u2713"} ${e.toolName}*`;
+				let threadMessage = `**${e.isError ? "\u2717" : "\u2713"} ${e.toolName}**`;
 				if (label) threadMessage += `: ${label}`;
 				threadMessage += ` (${duration}s)\n`;
 				if (argsFormatted) threadMessage += `\`\`\`\n${argsFormatted}\n\`\`\`\n`;
-				threadMessage += `*Result:*\n\`\`\`\n${truncate(resultStr, 3000)}\n\`\`\``;
+				threadMessage += `**Result:**\n\`\`\`\n${truncate(resultStr, 3000)}\n\`\`\``;
 				ctx.emitDetail(threadMessage);
 			}
 

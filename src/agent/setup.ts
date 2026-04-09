@@ -430,10 +430,10 @@ export async function createChannelRunner(opts: {
 
 				// Handle final result — footer is auto-appended by AgentSurface
 				if (runStats.stopReason === "error" && runStats.errorMessage) {
-					ctx.emitResponse(`_Sorry, something went wrong: ${truncate(runStats.errorMessage, 500)}_`);
+					ctx.emitResponse(`*Sorry, something went wrong: ${truncate(runStats.errorMessage, 500)}*`);
 				} else if (runStats.stopReason === "max_tokens") {
 					ctx.emitResponse(
-						"_Ran out of space mid-response. Try asking me to continue, or break it into smaller steps._",
+						"*Ran out of space mid-response. Try asking me to continue, or break it into smaller steps.*",
 					);
 				} else {
 					// Extract final text from session messages

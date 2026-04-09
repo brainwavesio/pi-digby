@@ -6,10 +6,15 @@ import { THINKING_PLACEHOLDER } from "./types.js";
 const MAX_MESSAGE_LENGTH = 35000;
 const MAX_THREAD_MESSAGE_LENGTH = 20000;
 
-/** Convert markdown italic (*text*) to Slack mrkdwn italic (_text_). */
+/**
+ * Convert standard markdown to Slack mrkdwn:
+ * - *italic* → _italic_ (skipping ** so bold isn't clobbered)
+ * - **bold** → *bold*
+ */
 function mdToMrkdwn(text: string): string {
-	// Convert *italic* to _italic_ but leave **bold** (and ***) untouched
-	return text.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, "_$1_");
+	return text
+		.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, "_$1_") // italic first, skip **
+		.replace(/\*\*([^*]+)\*\*/g, "*$1*"); // then collapse ** to *
 }
 
 export interface MessageTransport {
@@ -125,7 +130,7 @@ export class SlackSurface implements AgentSurface {
 	}
 
 	emitResponse(text: string): void {
-		this.accumulatedText = text;
+		this.accumulatedText = mdToMrkdwn(text);
 		this.enqueuePostOrUpdate(this.truncate(this.displayText, MAX_MESSAGE_LENGTH));
 	}
 
