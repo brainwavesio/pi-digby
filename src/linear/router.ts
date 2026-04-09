@@ -36,7 +36,7 @@ export function createLinearWebhookHandler(
 
 		log.info(`[linear] AgentSessionEvent action=${action} session=${sessionId}`);
 
-		if (action === "create") {
+		if (action === "created") {
 			// New agent session — extract prompt context
 			const text = payload.promptContext || session.issue?.title || "No context provided";
 
@@ -52,7 +52,7 @@ export function createLinearWebhookHandler(
 			handler.handleEvent(event).catch((err) => {
 				log.warn(`[linear] handler error: ${err instanceof Error ? err.message : String(err)}`);
 			});
-		} else if (action === "update") {
+		} else if (action === "prompted") {
 			// Follow-up prompt from user or stop signal
 			const activity = payload.agentActivity;
 			if (!activity) return;
