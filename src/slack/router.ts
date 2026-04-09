@@ -40,6 +40,7 @@ export function setupRouter(client: SlackClient, handler: RouterHandler, startup
 
 		const slackEvent: SlackEvent = {
 			type: "mention",
+			source: "slack",
 			channel: e.channel,
 			ts: e.ts,
 			user: e.user,
@@ -81,6 +82,7 @@ export function setupRouter(client: SlackClient, handler: RouterHandler, startup
 		if (e.bot_id) {
 			const slackEvent: SlackEvent = {
 				type: "channel",
+				source: "slack",
 				channel: e.channel,
 				ts: e.ts,
 				user: e.user || e.bot_id,
@@ -100,6 +102,7 @@ export function setupRouter(client: SlackClient, handler: RouterHandler, startup
 		// and messages with neither user nor bot_id were filtered above.
 		const slackEvent: SlackEvent = {
 			type: isDm ? "dm" : "channel",
+			source: "slack",
 			channel: e.channel,
 			ts: e.ts,
 			user: e.user!,

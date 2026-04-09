@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { RunContext, type SlackClientLike } from "../src/channel/run-context.js";
+import { SlackSurface, type MessageTransport } from "../src/surface/slack.js";
+import { THINKING_PLACEHOLDER } from "../src/surface/types.js";
 import { type RunStats, createRunStats } from "../src/channel/run-stats.js";
 
 /** Mock Slack client that records all calls */
@@ -7,7 +8,7 @@ function createMockClient() {
 	const calls: Array<{ method: string; args: any[] }> = [];
 	let nextTs = 1;
 
-	const client: SlackClientLike = {
+	const client: MessageTransport = {
 		async postMessage(channel, text, threadTs?) {
 			const ts = String(nextTs++);
 			calls.push({ method: "postMessage", args: [channel, text, threadTs] });
@@ -30,15 +31,15 @@ function createMockClient() {
 	return { client, calls };
 }
 
-describe("RunContext", () => {
+describe("SlackSurface", () => {
 	let mock: ReturnType<typeof createMockClient>;
 	let stats: RunStats;
-	let ctx: RunContext;
+	let ctx: SlackSurface;
 
 	beforeEach(() => {
 		mock = createMockClient();
 		stats = createRunStats();
-		ctx = new RunContext(mock.client, "C123", stats);
+		ctx = new SlackSurface(mock.client, "C123", stats);
 	});
 
 	// ==========================================================================
@@ -47,7 +48,7 @@ describe("RunContext", () => {
 
 	describe("footer", () => {
 		it("shows no footer when no steps and no cost", async () => {
-			ctx.respond("Hello");
+			ctx.emitProgress("Hello");
 			await ctx.flush();
 
 			const text = mock.calls.find((c) => c.method === "postMessage")!.args[1];
@@ -58,7 +59,7 @@ describe("RunContext", () => {
 		it("shows streaming footer when steps > 0 during run", async () => {
 			stats.stepCount = 2;
 			stats.totalCost = 0.05;
-			ctx.respond("Working...");
+			ctx.emitProgress("Working...");
 			await ctx.flush();
 
 			const text = mock.calls.find((c) => c.method === "postMessage")!.args[1];
@@ -70,7 +71,7 @@ describe("RunContext", () => {
 		it("shows cost footer after resolve", async () => {
 			stats.stepCount = 3;
 			stats.totalCost = 0.45;
-			ctx.respond("Done.");
+			ctx.emitProgress("Done.");
 			ctx.resolve();
 			await ctx.flush();
 
@@ -82,12 +83,12 @@ describe("RunContext", () => {
 	});
 
 	// ==========================================================================
-	// postThinking
+	// emitThinking
 	// ==========================================================================
 
-	describe("postThinking", () => {
+	describe("emitThinking", () => {
 		it("posts thinking message immediately", async () => {
-			ctx.postThinking();
+			ctx.emitThinking();
 			await ctx.flush();
 
 			expect(mock.calls).toHaveLength(1);
@@ -96,8 +97,8 @@ describe("RunContext", () => {
 		});
 
 		it("does not post twice", async () => {
-			ctx.postThinking();
-			ctx.postThinking();
+			ctx.emitThinking();
+			ctx.emitThinking();
 			await ctx.flush();
 
 			const posts = mock.calls.filter((c) => c.method === "postMessage");
@@ -106,13 +107,13 @@ describe("RunContext", () => {
 	});
 
 	// ==========================================================================
-	// respond / replaceMessage
+	// emitProgress / emitResponse
 	// ==========================================================================
 
-	describe("respond", () => {
-		it("replaces thinking placeholder on first respond", async () => {
-			ctx.postThinking();
-			ctx.respond("_\u2192 Reading file_");
+	describe("emitProgress", () => {
+		it("replaces thinking placeholder on first emitProgress", async () => {
+			ctx.emitThinking();
+			ctx.emitProgress("*\u2192 Reading file*");
 			await ctx.flush();
 
 			const lastUpdate = mock.calls.filter((c) => c.method === "updateMessage").pop()!;
@@ -121,9 +122,9 @@ describe("RunContext", () => {
 		});
 
 		it("appends after thinking is replaced", async () => {
-			ctx.postThinking();
-			ctx.respond("_\u2192 Step 1_");
-			ctx.respond("_\u2192 Step 2_");
+			ctx.emitThinking();
+			ctx.emitProgress("*\u2192 Step 1*");
+			ctx.emitProgress("*\u2192 Step 2*");
 			await ctx.flush();
 
 			const lastUpdate = mock.calls.filter((c) => c.method === "updateMessage").pop()!;
@@ -133,8 +134,8 @@ describe("RunContext", () => {
 		});
 
 		it("posts on first call, updates on subsequent", async () => {
-			ctx.respond("line 1");
-			ctx.respond("line 2");
+			ctx.emitProgress("line 1");
+			ctx.emitProgress("line 2");
 			await ctx.flush();
 
 			expect(mock.calls[0].method).toBe("postMessage");
@@ -144,10 +145,10 @@ describe("RunContext", () => {
 		});
 	});
 
-	describe("replaceMessage", () => {
+	describe("emitResponse", () => {
 		it("replaces all accumulated text", async () => {
-			ctx.respond("old text");
-			ctx.replaceMessage("new text");
+			ctx.emitProgress("old text");
+			ctx.emitResponse("new text");
 			await ctx.flush();
 
 			const lastUpdate = mock.calls.filter((c) => c.method === "updateMessage").pop()!;
@@ -164,7 +165,7 @@ describe("RunContext", () => {
 		it("transitions footer from streaming to cost", async () => {
 			stats.stepCount = 1;
 			stats.totalCost = 0.1;
-			ctx.respond("Result");
+			ctx.emitProgress("Result");
 			ctx.resolve();
 			await ctx.flush();
 
@@ -173,7 +174,7 @@ describe("RunContext", () => {
 		});
 
 		it("is idempotent — second call is no-op", async () => {
-			ctx.respond("text");
+			ctx.emitProgress("text");
 			ctx.resolve();
 			ctx.resolve();
 			await ctx.flush();
@@ -186,7 +187,7 @@ describe("RunContext", () => {
 
 	describe("reject", () => {
 		it("appends error to accumulated text", async () => {
-			ctx.respond("partial work");
+			ctx.emitProgress("partial work");
 			ctx.reject("Something broke");
 			await ctx.flush();
 
@@ -216,11 +217,11 @@ describe("RunContext", () => {
 		});
 	});
 
-	describe("deleteMessage", () => {
+	describe("suppress", () => {
 		it("deletes main and thread messages", async () => {
-			ctx.postThinking();
-			ctx.respondInThread("detail");
-			ctx.deleteMessage();
+			ctx.emitThinking();
+			ctx.emitDetail("detail");
+			ctx.suppress();
 			await ctx.flush();
 
 			const deletes = mock.calls.filter((c) => c.method === "deleteMessage");
@@ -228,14 +229,14 @@ describe("RunContext", () => {
 		});
 
 		it("prevents subsequent resolve", async () => {
-			ctx.respond("text");
-			ctx.deleteMessage();
+			ctx.emitProgress("text");
+			ctx.suppress();
 			ctx.resolve();
 			await ctx.flush();
 
-			// resolve should not fire an update after delete
+			// resolve should not fire an update after suppress
 			const updates = mock.calls.filter((c) => c.method === "updateMessage");
-			// The respond() causes one update, but resolve() should be no-op
+			// The emitProgress() causes one update, but resolve() should be no-op
 			const postDeleteUpdates = mock.calls.slice(
 				mock.calls.findIndex((c) => c.method === "deleteMessage") + 1,
 			);
@@ -252,7 +253,7 @@ describe("RunContext", () => {
 
 	describe("dispose", () => {
 		it("rejects if no terminal op was called", async () => {
-			ctx.respond("abandoned");
+			ctx.emitProgress("abandoned");
 			ctx.dispose();
 			await ctx.flush();
 
@@ -279,17 +280,17 @@ describe("RunContext", () => {
 	describe("full lifecycle", () => {
 		it("thinking → tool labels → response → resolve", async () => {
 			// Phase 1: thinking
-			ctx.postThinking();
+			ctx.emitThinking();
 
 			// Phase 2: tools
 			stats.stepCount = 1;
-			ctx.respond("_\u2192 Reading config_");
+			ctx.emitProgress("*\u2192 Reading config*");
 			stats.stepCount = 2;
-			ctx.respond("_\u2192 Running tests_");
+			ctx.emitProgress("*\u2192 Running tests*");
 
 			// Phase 3: response replaces everything
 			stats.totalCost = 0.45;
-			ctx.replaceMessage("All tests pass.");
+			ctx.emitResponse("All tests pass.");
 
 			// Phase 4: resolve
 			ctx.resolve();
@@ -304,8 +305,8 @@ describe("RunContext", () => {
 		});
 
 		it("thinking → error → reject", async () => {
-			ctx.postThinking();
-			ctx.respond("_\u2192 Calling API_");
+			ctx.emitThinking();
+			ctx.emitProgress("*\u2192 Calling API*");
 			stats.stepCount = 1;
 			ctx.reject("Bedrock timeout");
 			await ctx.flush();
@@ -322,7 +323,7 @@ describe("RunContext", () => {
 
 	describe("reject with thinking placeholder", () => {
 		it("clears thinking placeholder when error fires before any content", async () => {
-			ctx.postThinking();
+			ctx.emitThinking();
 			ctx.reject("Bedrock unavailable");
 			await ctx.flush();
 
@@ -332,8 +333,8 @@ describe("RunContext", () => {
 		});
 
 		it("keeps accumulated text when error fires after content", async () => {
-			ctx.postThinking();
-			ctx.respond("_\u2192 Step 1_");
+			ctx.emitThinking();
+			ctx.emitProgress("*\u2192 Step 1*");
 			ctx.reject("Timed out");
 			await ctx.flush();
 
@@ -349,7 +350,7 @@ describe("RunContext", () => {
 
 	describe("state getters", () => {
 		it("finalMessageTs returns posted message ts", async () => {
-			ctx.postThinking();
+			ctx.emitThinking();
 			await ctx.flush();
 
 			expect(ctx.finalMessageTs).toBe("1");
@@ -360,7 +361,7 @@ describe("RunContext", () => {
 		});
 
 		it("finalText returns accumulated text", async () => {
-			ctx.respond("Hello world");
+			ctx.emitProgress("Hello world");
 			await ctx.flush();
 
 			expect(ctx.finalText).toBe("Hello world");
@@ -371,9 +372,9 @@ describe("RunContext", () => {
 			expect(ctx.wasDeleted).toBe(false);
 		});
 
-		it("wasDeleted is true after deleteMessage", async () => {
-			ctx.postThinking();
-			ctx.deleteMessage();
+		it("wasDeleted is true after suppress", async () => {
+			ctx.emitThinking();
+			ctx.suppress();
 			await ctx.flush();
 
 			expect(ctx.wasDeleted).toBe(true);

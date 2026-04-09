@@ -13,11 +13,13 @@ export interface PromptOptions {
 	channels: Array<{ id: string; name: string }>;
 	users: Array<{ id: string; userName: string; displayName: string }>;
 	skills: Skill[];
+	source?: "slack" | "linear";
 }
 
 export function buildSystemPrompt(opts: PromptOptions): string {
-	const { workspacePath, channelId, memory, channels, users, skills } = opts;
+	const { workspacePath, channelId, memory, channels, users, skills, source = "slack" } = opts;
 	const channelPath = `${workspacePath}/${channelId}`;
+	const isLinear = source === "linear";
 
 	// Format channel mappings
 	const channelMappings =
@@ -29,14 +31,15 @@ export function buildSystemPrompt(opts: PromptOptions): string {
 
 	const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-	return `You are digby, a Slack bot assistant. Be concise. No emojis.
+	const intro = isLinear
+		? "You are digby, a Linear agent assistant. Be concise. No emojis."
+		: "You are digby, a Slack bot assistant. Be concise. No emojis.";
 
-## Context
-- For current date/time, use: date
-- You have access to previous conversation context including tool results from prior turns.
-- For older history beyond your context, search log.jsonl (contains user messages and your final responses, but not tool results).
-
-## Slack Formatting (mrkdwn, NOT Markdown)
+	const formattingSection = isLinear
+		? `## Formatting (Markdown)
+Use standard Markdown: **bold**, *italic*, \`code\`, \`\`\`code blocks\`\`\`, [links](url).
+Your response will be posted as an agent activity on the Linear issue.`
+		: `## Slack Formatting (mrkdwn, NOT Markdown)
 Bold: *text*, Italic: _text_, Code: \`code\`, Block: \`\`\`code\`\`\`, Links: <url|text>
 Do NOT use **double asterisks** or [markdown](links).
 
@@ -45,7 +48,16 @@ Channels: ${channelMappings}
 
 Users: ${userMappings}
 
-When mentioning users, use <@username> format (e.g., <@mario>).
+When mentioning users, use <@username> format (e.g., <@mario>).`;
+
+	return `${intro}
+
+## Context
+- For current date/time, use: date
+- You have access to previous conversation context including tool results from prior turns.
+- For older history beyond your context, search log.jsonl (contains user messages and your final responses, but not tool results).
+
+${formattingSection}
 
 ## Environment
 You are running directly on the host machine.
@@ -188,9 +200,8 @@ grep '"userName":"mario"' log.jsonl | tail -20 | jq -c '{date: .date[0:19], text
 - read: Read files
 - write: Create/overwrite files
 - edit: Surgical file edits
-- attach: Share files to Slack
-- react: Add an emoji reaction to the triggering message. Use instead of a text reply when a reaction is enough. If you react, respond with \`[SILENT]\` so no message is posted.
-
+- attach: Share files${isLinear ? "" : " to Slack"}
+${isLinear ? "" : "- react: Add an emoji reaction to the triggering message. Use instead of a text reply when a reaction is enough. If you react, respond with `[SILENT]` so no message is posted.\n"}
 Each tool requires a "label" parameter (shown to user).
 `;
 }
