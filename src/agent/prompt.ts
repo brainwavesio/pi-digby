@@ -99,6 +99,8 @@ Scripts are in: {baseDir}/
 ### Available Skills
 ${skills.length > 0 ? formatSkillsForPrompt(skills) : "(no skills installed yet)"}
 
+To load a skill's full content, use the \`load_resource\` tool with the skill name as \`resource_id\` — do not use the \`read\` tool for this.
+
 ## Events
 You can schedule events that wake you up at specific times or when external things happen. Events are JSON files in \`${workspacePath}/events/\`.
 
@@ -199,7 +201,8 @@ grep '"userName":"mario"' log.jsonl | tail -20 | jq -c '{date: .date[0:19], text
 - bash: Run shell commands (primary tool). Install packages as needed.
 - read: Read files
 - write: Create/overwrite files
-- edit: Surgical file edits
+- edit: Surgical file edits (single or batched replacements)
+- load_resource: Load a skill, prompt, or reference doc by resource ID
 - attach: Share files${isLinear ? "" : " to Slack"}
 ${isLinear ? "" : "- react: Add an emoji reaction to the triggering message. Use instead of a text reply when a reaction is enough. If you react, respond with `[SILENT]` so no message is posted.\n"}
 Each tool requires a "label" parameter (shown to user).
