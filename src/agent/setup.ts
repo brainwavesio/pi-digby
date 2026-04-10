@@ -31,7 +31,7 @@ import { createMomSettingsManager, syncLogToContext } from "../persistence/conte
 import { loadMemory } from "../persistence/memory.js";
 import type { SlackChannel, SlackUser } from "../slack/types.js";
 import type { AgentSurface } from "../surface/types.js";
-import { createLoadResourceTool, createTools } from "../tools/index.js";
+import { createTools } from "../tools/index.js";
 import type { BotEvent } from "../types.js";
 import { resizeImage } from "../utils/image-resize.js";
 import { detectSupportedImageMimeTypeFromFile } from "../utils/mime.js";
@@ -130,19 +130,13 @@ export async function createChannelRunner(opts: {
 	// -----------------------------------------------------------------------
 	// Tools
 	// -----------------------------------------------------------------------
-	const { tools: baseTools, contexts: toolContexts } = createTools();
+	const { tools, contexts: toolContexts } = createTools();
 
 	// -----------------------------------------------------------------------
 	// System prompt (mutable — rebuilt each run)
 	// -----------------------------------------------------------------------
 	const memory = loadMemory(channelDir);
 	const skills = loadSkills(channelDir, workingDir);
-
-	// Build resource registry from loaded skills (lazy file reads)
-	const resourceRegistry = new Map<string, () => string>(
-		skills.map((s) => [s.name, () => readFileSync(s.filePath, "utf-8")]),
-	);
-	const tools = [...baseTools, createLoadResourceTool(resourceRegistry)];
 	let systemPrompt = buildSystemPrompt({
 		workspacePath: workingDir,
 		channelId,

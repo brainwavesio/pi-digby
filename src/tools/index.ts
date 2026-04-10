@@ -7,7 +7,6 @@ import { createReadTool } from "./read.js";
 import { createWriteTool } from "./write.js";
 
 export type { AttachContext } from "./attach.js";
-export { createLoadResourceTool } from "./load-resource.js";
 export type { ReactContext } from "./react.js";
 
 export interface ToolContexts {
