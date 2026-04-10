@@ -23,27 +23,38 @@ fi
 
 ln -sf /data/.pi/mcp.json /app/.pi/mcp.json
 
-# QMD setup: ensure collections are registered in the sqlite DB
-# Collections live in the sqlite DB (on EFS), not in qmd.yml.
-# We re-register them on every start — idempotent, fast if already up to date.
-mkdir -p /data/.cache/qmd /data/memory
+# QMD setup: persist config and cache on EFS so collections and models
+# survive container restarts without re-registration or re-downloading.
+mkdir -p /data/.cache/qmd /data/.config/qmd /data/memory
 
-# Persist QMD cache on EFS
+# Persist ~/.cache/qmd (models + sqlite DB) on EFS
 mkdir -p /root/.cache
 ln -sfn /data/.cache/qmd /root/.cache/qmd
 
-# Register collections (idempotent — safe to run every boot)
-QMD_CACHE_DIR=/data/.cache/qmd qmd collection add /data/memory \
-  --name memory --context "Global workspace memory, notes, and daily summaries" 2>/dev/null || true
-QMD_CACHE_DIR=/data/.cache/qmd qmd collection add /data \
-  --name channels --mask "*/memory/**/*.md" \
-  --context "Per-channel memory, daily summaries, and notes" 2>/dev/null || true
-QMD_CACHE_DIR=/data/.cache/qmd qmd collection add /data \
-  --name skills --mask "**/skills/**/SKILL.md" \
-  --context "Reusable CLI tool definitions" 2>/dev/null || true
+# Persist ~/.config/qmd (collection definitions) on EFS
+ln -sfn /data/.config/qmd /root/.config/qmd
 
-# Background: update index then generate missing embeddings
-(QMD_CACHE_DIR=/data/.cache/qmd qmd update && QMD_CACHE_DIR=/data/.cache/qmd qmd embed) &
+# Seed collection config on first boot (idempotent — only writes if missing)
+if [ ! -f /data/.config/qmd/index.yml ]; then
+  cat > /data/.config/qmd/index.yml << 'QMDEOF'
+collections:
+  memory:
+    path: /data/memory
+    pattern: "**/*.md"
+    context: "Global workspace memory, notes, and daily summaries"
+  channels:
+    path: /data
+    pattern: "*/memory/**/*.md"
+    context: "Per-channel memory, daily summaries, and notes"
+  skills:
+    path: /data
+    pattern: "**/skills/**/SKILL.md"
+    context: "Reusable CLI tool definitions"
+QMDEOF
+fi
+
+# Background: re-index any changed files, then embed new content
+(qmd update && qmd embed) &
 
 # Start Cloudflare Tunnel (if configured)
 if [ -n "$CLOUDFLARE_TUNNEL_TOKEN" ]; then
