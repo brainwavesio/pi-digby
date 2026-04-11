@@ -1,198 +1,158 @@
-# Slack Canvas Skill — Brief for Digby
-
-Create a global skill at `/data/skills/slack-canvas/` that lets you create, read, and edit Slack Canvases. Canvases are native living documents in Slack — they appear as a tab in a channel and are editable by both you and channel members. We're using these instead of Google Docs for collaborative document work.
-
-## Prerequisites
-
-The bot token (`$MOM_SLACK_BOT_TOKEN`) has `canvases:read` and `canvases:write` scopes. You already have access to it in your environment.
-
-## What are Canvases?
-
-Two types:
-
-- **Channel canvas** — one per channel max. Appears as a tab in the channel. All channel members can see it. Created via `conversations.canvases.create`. If one already exists, the API returns error `channel_canvas_already_exists`.
-- **Standalone canvas** — independent document. Can be shared to channels via `canvases.access.set`. Created via `canvases.create`. Use when a channel needs multiple documents.
-
-Content format is **markdown**: h1-h3, bold, italic, bulleted/ordered/checklists, code blocks, tables (max 300 cells), links, dividers, quotes, user mentions (`![](@U123)`), channel mentions (`![](#C123)`).
-
-## Slack API Methods
-
-All methods: POST to `https://slack.com/api/<method>`, `Content-Type: application/json`, `Authorization: Bearer $MOM_SLACK_BOT_TOKEN`.
-
-### conversations.canvases.create
-
-Create a channel canvas (appears as channel tab).
-
-```json
-{
-  "channel_id": "C123ABC",
-  "document_content": { "type": "markdown", "markdown": "# Title\n\nContent" }
-}
-```
-
-Returns `{ "ok": true, "canvas_id": "F0xxxxx" }`.
-
-### canvases.create
-
-Create a standalone canvas.
-
-```json
-{
-  "title": "Document Title",
-  "document_content": { "type": "markdown", "markdown": "# Title\n\nContent" }
-}
-```
-
-Returns `{ "ok": true, "canvas_id": "F0xxxxx" }`.
-
-### canvases.edit
-
-Edit canvas content. Accepts a `changes` array with one or more operations.
-
-```json
-{
-  "canvas_id": "F0xxxxx",
-  "changes": [
-    {
-      "operation": "replace",
-      "document_content": { "type": "markdown", "markdown": "# New content" }
-    }
-  ]
-}
-```
-
-Operations:
-
-| Operation | section_id required? | Description |
-|-----------|---------------------|-------------|
-| `replace` | No = replace entire canvas | Full content replacement |
-| `replace` | Yes = replace that section | Targeted section replacement |
-| `insert_at_start` | No | Add content at beginning |
-| `insert_at_end` | No | Append content |
-| `insert_before` | Yes | Insert before a section |
-| `insert_after` | Yes | Insert after a section |
-| `delete` | Yes | Remove a section |
-
-### canvases.sections.lookup
-
-Find section IDs for targeted edits.
-
-```json
-{
-  "canvas_id": "F0xxxxx",
-  "criteria": { "section_types": ["any_header"], "contains_text": "Section Name" }
-}
-```
-
-Section types: `h1`, `h2`, `h3`, `any_header`. Returns array of `{ "id": "temp:xxx:xxx" }`.
-
-### canvases.delete
-
-```json
-{ "canvas_id": "F0xxxxx" }
-```
-
-Permanent and irreversible.
-
-### canvases.access.set
-
-Share a standalone canvas with channels or users.
-
-```json
-{
-  "canvas_id": "F0xxxxx",
-  "access_level": "write",
-  "channel_ids": ["C123ABC"]
-}
-```
-
-Access levels: `read`, `write`. Not needed for channel canvases (access follows channel membership).
-
-## Rate Limits
-
-- Create: Tier 2 (20+/min)
-- Edit, sections lookup, delete, access: Tier 3 (50+/min)
-
-## What to Build
-
-### 1. Helper script: `canvas.sh`
-
-A bash script using `curl` and `jq` that wraps the API. Should accept subcommands and read markdown content from a file path (so you write content to a scratch file first, then pass the path).
-
-Subcommands:
-
-```bash
-# Create a channel canvas (returns canvas_id)
-{baseDir}/canvas.sh create-channel <channel_id> <markdown_file>
-
-# Create a standalone canvas (returns canvas_id)
-{baseDir}/canvas.sh create <title> <markdown_file>
-
-# Replace entire canvas content
-{baseDir}/canvas.sh replace <canvas_id> <markdown_file>
-
-# Edit a specific section by heading text
-{baseDir}/canvas.sh edit-section <canvas_id> <heading_text> <markdown_file>
-
-# Append content to end
-{baseDir}/canvas.sh append <canvas_id> <markdown_file>
-
-# List sections (headings and their IDs)
-{baseDir}/canvas.sh sections <canvas_id>
-
-# Delete a canvas
-{baseDir}/canvas.sh delete <canvas_id>
-```
-
-The script should:
-- Use `$MOM_SLACK_BOT_TOKEN` from environment
-- Read markdown content from the file path argument
-- Output the canvas_id on create operations
-- Show clear error messages from the Slack API on failure
-- Handle the JSON escaping of markdown content properly (use jq to build the JSON payload so newlines/quotes are escaped correctly)
-
-### 2. Skill definition: `SKILL.md`
-
-```markdown
 ---
 name: slack-canvas
-description: Create and edit Slack Canvases — living documents in channels. Use for briefs, specs, plans, and other collaborative documents.
+description: Create and edit Slack Canvases — living documents that appear as channel tabs. Use for briefs, specs, plans, and collaborative docs.
 ---
 
 # Slack Canvas
 
-(instructions for yourself on when and how to use the canvas skill)
+Create and edit living documents in Slack channels using the Canvases API. Canvases are native Slack documents — channel canvases appear as a tab visible to all channel members. We use these instead of Google Docs for collaborative work.
+
+## When to Use
+
+- User asks to "write up", "draft", "document", or "put together" something
+- Collaborative documents: briefs, specs, plans, project docs, status pages
+- Anything you'd previously put in a Google Doc
+
+Don't use for ephemeral content — just post a message.
+
+## Canvas Types
+
+- **Channel canvas** — one per channel, appears as a channel tab. Default choice.
+- **Standalone canvas** — independent document, shareable to multiple channels. Use when a channel needs multiple docs.
+
+## Content Format
+
+Markdown: headings (h1-h3), bold, italic, lists (bulleted, ordered, checklists), code blocks, tables (max 300 cells), links, dividers, blockquotes, emojis.
+
+Mention syntax within canvas markdown:
+- User: `![](@U123ABCDEFG)`
+- Channel: `![](#C123ABC456)`
+
+## API Access
+
+Use `bun -e` with `@slack/web-api` (auto-installed by Bun on first run). Token is `$MOM_SLACK_BOT_TOKEN`.
+
+```typescript
+import { WebClient } from "@slack/web-api";
+import { readFileSync } from "fs";
+const client = new WebClient(process.env.MOM_SLACK_BOT_TOKEN);
 ```
 
-The SKILL.md should cover:
+Write markdown to a scratch file first, then `readFileSync` it into the API call. This avoids shell escaping issues.
 
-**When to use:**
-- Collaborative documents: briefs, specs, plans, project docs, meeting notes
-- Anything you'd previously have put in a Google Doc
-- When the user asks you to "write up", "draft", "document", or "put together" something
+## Operations
 
-**When NOT to use:**
-- Ephemeral content (just post a message)
-- Tiny one-off responses
+### Create channel canvas
 
-**Workflow:**
-1. Write content to a scratch file in the channel's `scratch/` directory
-2. Call the helper script
-3. Record the `canvas_id` in channel MEMORY.md so you remember it next time
-4. For updates, check MEMORY.md for existing canvas_id, then use replace or edit-section
+```typescript
+const r = await client.apiCall("conversations.canvases.create", {
+  channel_id: "CHANNEL_ID",
+  document_content: { type: "markdown", markdown: readFileSync("scratch/doc.md", "utf-8") },
+});
+console.log(r.canvas_id); // e.g. "F0ABC123XYZ"
+```
 
-**Channel canvas vs standalone:**
-- Default to channel canvas (one per channel, appears as tab) for the primary working document
-- Use standalone canvases when a channel needs multiple documents
-- If `create-channel` returns `channel_canvas_already_exists`, check MEMORY.md for the existing canvas_id and update it instead
+Returns `canvas_id`. Error `channel_canvas_already_exists` if one exists — update instead.
 
-**Cross-context (Linear):**
-- When working on a Linear project that maps to a Slack channel, you can read/update the channel's canvas
-- Mention canvas updates in Linear activity so stakeholders know the doc was updated
-- Use MEMORY.md to track which Linear projects map to which Slack channels
+### Create standalone canvas
 
-**Content tips:**
-- Use proper markdown headings (# h1, ## h2, ### h3) to structure documents — this enables surgical section editing later
-- Keep a consistent structure so edit-section works reliably
-- Tables are supported (max 300 cells)
-- You can @mention users with `![](@U123USERID)` syntax in the markdown
+```typescript
+const r = await client.apiCall("canvases.create", {
+  title: "Document Title",
+  document_content: { type: "markdown", markdown: readFileSync("scratch/doc.md", "utf-8") },
+});
+console.log(r.canvas_id);
+```
+
+Share to a channel:
+
+```typescript
+await client.apiCall("canvases.access.set", {
+  canvas_id: "CANVAS_ID",
+  access_level: "write", // or "read"
+  channel_ids: ["CHANNEL_ID"],
+});
+```
+
+### Replace entire canvas
+
+```typescript
+await client.apiCall("canvases.edit", {
+  canvas_id: "CANVAS_ID",
+  changes: [{
+    operation: "replace",
+    document_content: { type: "markdown", markdown: readFileSync("scratch/doc.md", "utf-8") },
+  }],
+});
+```
+
+### Edit a specific section
+
+Look up the section ID first, then replace it:
+
+```typescript
+const lookup = await client.apiCall("canvases.sections.lookup", {
+  canvas_id: "CANVAS_ID",
+  criteria: { contains_text: "Heading Text" },
+});
+const sectionId = (lookup as any).sections[0].id;
+
+await client.apiCall("canvases.edit", {
+  canvas_id: "CANVAS_ID",
+  changes: [{
+    operation: "replace",
+    section_id: sectionId,
+    document_content: { type: "markdown", markdown: newSectionContent },
+  }],
+});
+```
+
+Section lookup criteria supports `section_types`: `h1`, `h2`, `h3`, `any_header`.
+
+### Other edit operations
+
+```typescript
+// Append to end (no section_id needed)
+{ operation: "insert_at_end", document_content: { type: "markdown", markdown: content } }
+
+// Prepend to start
+{ operation: "insert_at_start", document_content: { type: "markdown", markdown: content } }
+
+// Insert before/after a section (requires section_id)
+{ operation: "insert_after", section_id: "...", document_content: { ... } }
+
+// Delete a section
+{ operation: "delete", section_id: "..." }
+```
+
+### Delete a canvas
+
+```typescript
+await client.apiCall("canvases.delete", { canvas_id: "CANVAS_ID" });
+```
+
+Permanent and irreversible.
+
+## Conventions
+
+1. **Track canvas IDs in MEMORY.md** — after creating a canvas, record the `canvas_id`:
+   ```
+   ## Canvases
+   - Channel canvas: F0ABC123XYZ (project brief)
+   - Standalone: F0DEF456 (API spec)
+   ```
+
+2. **Keep a working copy** — write content to `scratch/` first, then publish to canvas. There is no API to read canvas content back as markdown, so your scratch file is the source of truth.
+
+3. **Use headings for structure** — structure documents with h1/h2/h3. This enables targeted section edits via `canvases.sections.lookup` instead of full replacements.
+
+4. **Channel canvas first** — default to channel canvas (tab in channel). Only use standalone when multiple docs are needed per channel.
+
+5. **Handle existing canvases** — before creating, check MEMORY.md for an existing canvas_id. If `conversations.canvases.create` returns `channel_canvas_already_exists`, update the existing one.
+
+6. **Cross-context (Linear)** — when working on a Linear project mapped to a Slack channel, read/update that channel's canvas. Note updates in your Linear activity so stakeholders know.
+
+## Rate Limits
+
+- Create: 20+/min (Tier 2)
+- Edit, lookup, delete, access: 50+/min (Tier 3)
