@@ -1,3 +1,4 @@
+import QuickLRU from "quick-lru";
 import { shouldProcessAllMessages } from "../config.js";
 import * as log from "../log.js";
 import type { SlackClient } from "./client.js";
@@ -12,6 +13,17 @@ export interface RouterHandler {
 	handleStop(channelId: string, threadTs?: string): Promise<void>;
 	/** Log a message to log.jsonl without triggering a run */
 	logMessage(event: SlackEvent): void;
+}
+
+// Dedup incoming Slack events by channel:ts — Slack replays events on reconnect.
+// QuickLRU evicts oldest entries once maxSize is reached.
+const seenEvents = new QuickLRU<string, true>({ maxSize: 100 });
+
+function isDuplicate(channel: string, ts: string): boolean {
+	const key = `${channel}:${ts}`;
+	if (seenEvents.has(key)) return true;
+	seenEvents.set(key, true);
+	return false;
 }
 
 /**
@@ -150,6 +162,11 @@ export function setupRouter(client: SlackClient, handler: RouterHandler, startup
 }
 
 function processOrBusy(client: SlackClient, handler: RouterHandler, event: SlackEvent, channel: string): void {
+	if (isDuplicate(channel, event.ts)) {
+		log.info(`[${channel}] Dropping duplicate event ts=${event.ts}`);
+		return;
+	}
+
 	const text = event.text.toLowerCase().trim();
 
 	// Stop command — log and execute immediately, don't queue
