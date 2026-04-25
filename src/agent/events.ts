@@ -120,6 +120,8 @@ export function createEventHandler(
 				startTime: Date.now(),
 			});
 
+			stats.lastStepAt = Date.now(); // reset per-step timeout clock
+
 			log.toolStart(channelId, e.toolName, label);
 			ctx.emitProgress(`*\u2192 ${label}*`);
 		} else if (event.type === "tool_execution_end") {
@@ -153,6 +155,7 @@ export function createEventHandler(
 			}
 		} else if (event.type === "message_end") {
 			const e = event as any;
+			stats.lastStepAt = Date.now(); // model turn = activity, reset per-step clock
 			if (e.message?.role === "assistant") {
 				const assistantMsg = e.message;
 

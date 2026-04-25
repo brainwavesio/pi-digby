@@ -25,7 +25,7 @@ import { homedir } from "os";
 import { dirname, join } from "path";
 import type { RunStats } from "../channel/run-stats.js";
 import type { ChannelState } from "../channel/state.js";
-import { getRunTimeout } from "../config.js";
+import { getRunTimeout, getStepTimeout } from "../config.js";
 import * as log from "../log.js";
 import { createMomSettingsManager, syncLogToContext } from "../persistence/context.js";
 import { loadMemory } from "../persistence/memory.js";
@@ -405,25 +405,52 @@ export async function createChannelRunner(opts: {
 				};
 				await writeFile(join(channelDir, "last_prompt.jsonl"), JSON.stringify(debugContext, null, 2));
 
-				// Run with timeout
-				const timeoutMs = getRunTimeout() * 1000;
-				const timeoutPromise = new Promise<void>((_, reject) => {
-					setTimeout(() => reject(new Error(`Run timed out after ${getRunTimeout()}s`)), timeoutMs);
-				});
+				// Run with per-step watchdog timeout + overall safety net
+				// Per-step: aborts if no tool call or model turn for stepTimeout seconds (default 900s)
+				// Overall: safety net at runTimeout seconds (default 3600s)
+				runStats.lastStepAt = Date.now();
+				let watchdogTimer: ReturnType<typeof setInterval> | null = null;
+				let timedOut = false;
 
 				const promptPromise = session.prompt(
 					userMessage,
 					imageAttachments.length > 0 ? { images: imageAttachments } : undefined,
 				);
 
-				await Promise.race([promptPromise, timeoutPromise]).catch(async (err) => {
-					if (!abortRequested) {
+				// Per-step watchdog: checks every 15s if we've been idle too long
+				const stepTimeoutMs = getStepTimeout() * 1000;
+				watchdogTimer = setInterval(() => {
+					const idleMs = Date.now() - runStats.lastStepAt;
+					if (idleMs > stepTimeoutMs) {
+						timedOut = true;
+						clearInterval(watchdogTimer!);
+						watchdogTimer = null;
+						log.warn(`[${channelId}] Step timed out after ${Math.round(idleMs / 1000)}s idle`);
+						session.abort();
+					}
+				}, 15_000);
+
+				// Overall safety net
+				const runTimeoutMs = getRunTimeout() * 1000;
+				const overallTimeout = new Promise<void>((_, reject) =>
+					setTimeout(() => reject(new Error(`Run timed out after ${getRunTimeout()}s`)), runTimeoutMs),
+				);
+
+				await Promise.race([promptPromise, overallTimeout]).catch(async (err) => {
+					if (!abortRequested && !timedOut) {
 						log.warn(`[${channelId}] Run error/timeout: ${err.message}`);
 						await session.abort();
 					}
 					runStats.stopReason = "error";
-					runStats.errorMessage = err.message;
+					runStats.errorMessage = timedOut
+						? `Step timed out — no progress for ${getStepTimeout()}s`
+						: err.message;
 				});
+
+				if (watchdogTimer) {
+					clearInterval(watchdogTimer);
+					watchdogTimer = null;
+				}
 
 				// Wait for Slack update queue to flush
 				await ctx.flush();

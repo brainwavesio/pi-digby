@@ -8,6 +8,8 @@ export interface RunStats {
 	stopReason: string;
 	errorMessage?: string;
 	lastStreamedText: string;
+	/** Timestamp of the last step activity (tool call start or model turn). Used for per-step timeout. */
+	lastStepAt: number;
 }
 
 export function createRunStats(): RunStats {
@@ -17,5 +19,6 @@ export function createRunStats(): RunStats {
 		stopReason: "stop",
 		errorMessage: undefined,
 		lastStreamedText: "",
+		lastStepAt: Date.now(),
 	};
 }

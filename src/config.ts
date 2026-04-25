@@ -8,13 +8,16 @@ export interface DigbyConfig {
 	};
 	/** Post tool calls/thinking to thread under bot's message (default: false) */
 	debugThreading?: boolean;
-	/** Maximum time (seconds) a single run can take before being aborted (default: 600) */
+	/** Maximum time (seconds) a single run can take before being aborted (default: 3600) */
 	runTimeout?: number;
+	/** Maximum time (seconds) between steps (tool calls / model turns) before aborting (default: 900) */
+	stepTimeout?: number;
 }
 
 // Hot-reload: re-read digby.json at most every 2 minutes, or when mtime changes.
 const CACHE_TTL_MS = 2 * 60 * 1000;
-const DEFAULT_RUN_TIMEOUT_S = 600;
+const DEFAULT_RUN_TIMEOUT_S = 3600;  // safety net — per-step timeout is the real guard
+const DEFAULT_STEP_TIMEOUT_S = 900;  // abort if no progress for 15 minutes
 
 let cached: DigbyConfig | null = null;
 let configDir: string | null = null;
@@ -62,4 +65,8 @@ export function isDebugThreadingEnabled(): boolean {
 
 export function getRunTimeout(): number {
 	return loadConfig().runTimeout ?? DEFAULT_RUN_TIMEOUT_S;
+}
+
+export function getStepTimeout(): number {
+	return loadConfig().stepTimeout ?? DEFAULT_STEP_TIMEOUT_S;
 }
