@@ -73,6 +73,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && apt-get autoremove -y \
   && rm -rf /var/lib/apt/lists/*
 
+# claude (Claude Code CLI) and codex (OpenAI Codex CLI)
+RUN npm install -g @anthropic-ai/claude-code @openai/codex
+
+# Ensure /usr/local/bin is in PATH for all users (including `node` user used for claude/codex)
+ENV PATH="/usr/local/bin:${PATH}"
+
 WORKDIR /app
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
