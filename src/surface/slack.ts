@@ -90,14 +90,34 @@ export class SlackSurface implements AgentSurface {
 
 	private enqueuePostOrUpdate(display: string): void {
 		this.enqueueUpdate(async () => {
-			try {
+			const doUpdate = async (text: string) => {
 				if (this.messageTs) {
-					await this.client.updateMessage(this.channel, this.messageTs, display);
+					await this.client.updateMessage(this.channel, this.messageTs, text);
 				} else {
-					this.messageTs = await this.client.postMessage(this.channel, display, this.replyThreadTs);
+					this.messageTs = await this.client.postMessage(this.channel, text, this.replyThreadTs);
 				}
+			};
+
+			try {
+				await doUpdate(display);
 			} catch (err) {
-				log.warn("[slack-surface] post/update error", err instanceof Error ? err.message : String(err));
+				const msg = err instanceof Error ? err.message : String(err);
+				if (!msg.includes("msg_too_long")) {
+					log.warn("[slack-surface] post/update error", msg);
+					return;
+				}
+				try {
+					await doUpdate(this.truncate(display, 30000));
+				} catch {
+					try {
+						await doUpdate("_Response too long — replying as a file attachment._");
+					} catch (finalErr) {
+						log.warn(
+							"[slack-surface] post/update error",
+							finalErr instanceof Error ? finalErr.message : String(finalErr),
+						);
+					}
+				}
 			}
 		});
 	}
