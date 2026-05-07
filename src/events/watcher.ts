@@ -1,8 +1,9 @@
 import { Cron } from "croner";
-import { existsSync, type FSWatcher, mkdirSync, readdirSync, statSync, unlinkSync, watch } from "fs";
+import { existsSync, type FSWatcher, mkdirSync, readdirSync, statSync, unlinkSync } from "fs";
 import { readFile } from "fs/promises";
 import { join } from "path";
 import * as log from "../log.js";
+import { closeWatcher, FS_WATCH_RETRY_DELAY_MS, watchWithErrorHandler } from "./fs-watch.js";
 
 // ============================================================================
 // Event types
@@ -51,12 +52,14 @@ const DEBOUNCE_MS = 100;
 const MAX_RETRIES = 3;
 const RETRY_BASE_MS = 100;
 
-class EventsWatcherImpl implements EventsWatcher {
+export class EventsWatcherImpl implements EventsWatcher {
 	private timers = new Map<string, NodeJS.Timeout>();
 	private crons = new Map<string, Cron>();
 	private debounceTimers = new Map<string, NodeJS.Timeout>();
 	private knownFiles = new Set<string>();
 	private fsWatcher: FSWatcher | null = null;
+	private fsWatcherRetryTimer: NodeJS.Timeout | null = null;
+	private stopped = true;
 	private startTime: number;
 
 	constructor(
@@ -71,6 +74,8 @@ class EventsWatcherImpl implements EventsWatcher {
 	// ------------------------------------------------------------------
 
 	start(): void {
+		this.stopped = false;
+
 		if (!existsSync(this.eventsDir)) {
 			mkdirSync(this.eventsDir, { recursive: true });
 		}
@@ -79,17 +84,21 @@ class EventsWatcherImpl implements EventsWatcher {
 
 		this.scanExisting();
 
-		this.fsWatcher = watch(this.eventsDir, (_type, filename) => {
-			if (!filename || !filename.endsWith(".json")) return;
-			this.debounce(filename, () => this.handleFileChange(filename));
-		});
+		this.startFsWatcher();
 
 		log.info(`Events watcher started, tracking ${this.knownFiles.size} file(s)`);
 	}
 
 	stop(): void {
-		this.fsWatcher?.close();
+		this.stopped = true;
+
+		closeWatcher(this.fsWatcher);
 		this.fsWatcher = null;
+
+		if (this.fsWatcherRetryTimer) {
+			clearTimeout(this.fsWatcherRetryTimer);
+			this.fsWatcherRetryTimer = null;
+		}
 
 		for (const t of this.debounceTimers.values()) clearTimeout(t);
 		this.debounceTimers.clear();
@@ -102,6 +111,65 @@ class EventsWatcherImpl implements EventsWatcher {
 
 		this.knownFiles.clear();
 		log.info("Events watcher stopped");
+	}
+
+	// ------------------------------------------------------------------
+	// fs.watch lifecycle (with retry on async errors)
+	// ------------------------------------------------------------------
+
+	private startFsWatcher(): void {
+		this.fsWatcher = watchWithErrorHandler(
+			this.eventsDir,
+			(_type, filename) => {
+				if (!filename || !filename.endsWith(".json")) return;
+				this.debounce(filename, () => this.handleFileChange(filename));
+			},
+			() => this.handleFsWatcherError(),
+		);
+	}
+
+	private handleFsWatcherError(): void {
+		log.warn("Events fs watcher errored, scheduling retry");
+		closeWatcher(this.fsWatcher);
+		this.fsWatcher = null;
+		this.scheduleFsWatcherRetry();
+	}
+
+	private scheduleFsWatcherRetry(): void {
+		if (this.stopped || this.fsWatcherRetryTimer) {
+			return;
+		}
+
+		this.fsWatcherRetryTimer = setTimeout(() => {
+			this.fsWatcherRetryTimer = null;
+			if (this.stopped) {
+				return;
+			}
+			this.startFsWatcher();
+			if (this.fsWatcher) {
+				this.rescanExisting();
+			}
+		}, FS_WATCH_RETRY_DELAY_MS);
+	}
+
+	private rescanExisting(): void {
+		let files: string[];
+		try {
+			files = readdirSync(this.eventsDir).filter((f) => f.endsWith(".json"));
+		} catch (err) {
+			log.warn("Failed to read events directory", String(err));
+			return;
+		}
+
+		const currentFiles = new Set(files);
+		for (const filename of files) {
+			this.handleFileChange(filename);
+		}
+		for (const filename of Array.from(this.knownFiles)) {
+			if (!currentFiles.has(filename)) {
+				this.handleDelete(filename);
+			}
+		}
 	}
 
 	// ------------------------------------------------------------------
