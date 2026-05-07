@@ -105,6 +105,22 @@ describe("Router", () => {
 			expect(h.handled[0].text).toBe("hello");
 		});
 
+		it("drops replayed DM messages with the same channel and ts", async () => {
+			const event = {
+				text: "hello",
+				channel: "D_DEDUP",
+				user: "U_USER",
+				ts: AFTER_STARTUP,
+				channel_type: "im",
+			};
+
+			mock.simulateMessage(event);
+			mock.simulateMessage(event);
+
+			await vi.waitFor(() => expect(h.handled).toHaveLength(1));
+			expect(h.handler.handleEvent).toHaveBeenCalledTimes(1);
+		});
+
 		it("skips DM from the bot itself", () => {
 			mock.simulateMessage({
 				text: "hello",
@@ -371,6 +387,23 @@ describe("Router", () => {
 			expect(h.handled).toHaveLength(0);
 			expect(mock.calls).toHaveLength(1);
 			expect(mock.calls[0].args[1]).toContain("Still thinking");
+		});
+
+		it("does not post duplicate busy messages for replayed events", () => {
+			h.setRunning(true);
+			const event = {
+				text: "hello",
+				channel: "C_BUSY_DEDUP",
+				user: "U_USER",
+				ts: AFTER_STARTUP,
+				channel_type: "im",
+			};
+
+			mock.simulateMessage(event);
+			mock.simulateMessage(event);
+
+			expect(h.logged).toHaveLength(1);
+			expect(mock.calls).toHaveLength(1);
 		});
 
 		it("handles stop when running", async () => {

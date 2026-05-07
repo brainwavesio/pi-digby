@@ -32,6 +32,7 @@ mkdir -p /root/.cache
 ln -sfn /data/.cache/qmd /root/.cache/qmd
 
 # Persist ~/.config/qmd (collection definitions) on EFS
+mkdir -p /root/.config
 ln -sfn /data/.config/qmd /root/.config/qmd
 
 # Seed collection config on first boot (idempotent — only writes if missing)

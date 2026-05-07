@@ -15,15 +15,19 @@ export interface RouterHandler {
 	logMessage(event: SlackEvent): void;
 }
 
-// Dedup incoming Slack events by channel:ts — Slack replays events on reconnect.
-// QuickLRU evicts oldest entries once maxSize is reached.
-const seenEvents = new QuickLRU<string, true>({ maxSize: 100 });
+type DuplicateChecker = (channel: string, ts: string) => boolean;
 
-function isDuplicate(channel: string, ts: string): boolean {
-	const key = `${channel}:${ts}`;
-	if (seenEvents.has(key)) return true;
-	seenEvents.set(key, true);
-	return false;
+function createDuplicateChecker(): DuplicateChecker {
+	// Dedup incoming Slack events by channel:ts — Slack replays events on reconnect.
+	// QuickLRU evicts oldest entries once maxSize is reached.
+	const seenEvents = new QuickLRU<string, true>({ maxSize: 100 });
+
+	return (channel: string, ts: string): boolean => {
+		const key = `${channel}:${ts}`;
+		if (seenEvents.has(key)) return true;
+		seenEvents.set(key, true);
+		return false;
+	};
 }
 
 /**
@@ -32,6 +36,7 @@ function isDuplicate(channel: string, ts: string): boolean {
  */
 export function setupRouter(client: SlackClient, handler: RouterHandler, startupTs: string): void {
 	const botUserId = client.getBotUserId();
+	const isDuplicate = createDuplicateChecker();
 
 	// ===== Channel @mentions =====
 	client.onAppMention((event) => {
@@ -67,7 +72,7 @@ export function setupRouter(client: SlackClient, handler: RouterHandler, startup
 			return;
 		}
 
-		processOrBusy(client, handler, slackEvent, e.channel);
+		processOrBusy(client, handler, slackEvent, e.channel, isDuplicate);
 	});
 
 	// ===== All messages (logging + DMs + bot-thread replies) =====
@@ -146,7 +151,7 @@ export function setupRouter(client: SlackClient, handler: RouterHandler, startup
 				.isBotThread(e.channel, e.thread_ts!)
 				.then((owned) => {
 					if (owned) {
-						processOrBusy(client, handler, slackEvent, e.channel);
+						processOrBusy(client, handler, slackEvent, e.channel, isDuplicate);
 					} else {
 						handler.logMessage(slackEvent);
 					}
@@ -157,11 +162,17 @@ export function setupRouter(client: SlackClient, handler: RouterHandler, startup
 			return;
 		}
 
-		processOrBusy(client, handler, slackEvent, e.channel);
+		processOrBusy(client, handler, slackEvent, e.channel, isDuplicate);
 	});
 }
 
-function processOrBusy(client: SlackClient, handler: RouterHandler, event: SlackEvent, channel: string): void {
+function processOrBusy(
+	client: SlackClient,
+	handler: RouterHandler,
+	event: SlackEvent,
+	channel: string,
+	isDuplicate: DuplicateChecker,
+): void {
 	if (isDuplicate(channel, event.ts)) {
 		log.info(`[${channel}] Dropping duplicate event ts=${event.ts}`);
 		return;
