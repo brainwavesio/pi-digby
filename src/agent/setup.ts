@@ -27,7 +27,12 @@ import type { RunStats } from "../channel/run-stats.js";
 import type { ChannelState } from "../channel/state.js";
 import { getRunTimeout } from "../config.js";
 import * as log from "../log.js";
-import { createMomSettingsManager, syncLogToContext } from "../persistence/context.js";
+import {
+	createMomSettingsManager,
+	formatLogMessageForContext,
+	type LogContextScope,
+	syncLogToContext,
+} from "../persistence/context.js";
 import { loadMemory } from "../persistence/memory.js";
 import type { SlackChannel, SlackUser } from "../slack/types.js";
 import type { AgentSurface } from "../surface/types.js";
@@ -80,16 +85,6 @@ function truncate(text: string, maxLen: number): string {
 	return `${text.substring(0, maxLen - 3)}...`;
 }
 
-function formatTimestamp(): string {
-	const now = new Date();
-	const pad = (n: number) => n.toString().padStart(2, "0");
-	const offset = -now.getTimezoneOffset();
-	const offsetSign = offset >= 0 ? "+" : "-";
-	const offsetHours = pad(Math.floor(Math.abs(offset) / 60));
-	const offsetMins = pad(Math.abs(offset) % 60);
-	return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}${offsetSign}${offsetHours}:${offsetMins}`;
-}
-
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
@@ -103,6 +98,7 @@ export interface ChannelRunner {
 		users: SlackUser[],
 		userName?: string,
 		stats?: RunStats,
+		logContextScope?: LogContextScope,
 	): Promise<RunResult>;
 	abort(): void;
 	shutdown(): Promise<void>;
@@ -120,12 +116,14 @@ export interface RunResult {
 export async function createChannelRunner(opts: {
 	channelId: string;
 	channelDir: string;
+	sessionDir: string;
 	workingDir: string;
 }): Promise<ChannelRunner> {
-	const { channelId, channelDir, workingDir } = opts;
+	const { channelId, channelDir, sessionDir, workingDir } = opts;
 
 	// Ensure channel directory exists
 	await mkdir(channelDir, { recursive: true });
+	await mkdir(sessionDir, { recursive: true });
 
 	// -----------------------------------------------------------------------
 	// Tools
@@ -163,8 +161,8 @@ export async function createChannelRunner(opts: {
 	// -----------------------------------------------------------------------
 	// Session persistence
 	// -----------------------------------------------------------------------
-	const contextFile = join(channelDir, "context.jsonl");
-	const sessionManager = SessionManager.open(contextFile, channelDir);
+	const contextFile = join(sessionDir, "context.jsonl");
+	const sessionManager = SessionManager.open(contextFile, sessionDir);
 	const settingsManager = createMomSettingsManager(workingDir);
 
 	// Load existing messages
@@ -265,6 +263,7 @@ export async function createChannelRunner(opts: {
 			users: SlackUser[],
 			userName?: string,
 			stats?: RunStats,
+			logContextScope?: LogContextScope,
 		): Promise<RunResult> {
 			abortRequested = false;
 			// Use caller's stats (shared with AgentSurface for footer) or create local
@@ -278,9 +277,11 @@ export async function createChannelRunner(opts: {
 
 			// Ensure channel directory exists
 			await mkdir(channelDir, { recursive: true });
+			await mkdir(sessionDir, { recursive: true });
 
 			// Sync messages from log.jsonl that arrived while offline or busy
-			const syncedCount = syncLogToContext(sessionManager, channelDir, event.ts, event.threadTs);
+			const scope = logContextScope ?? defaultLogContextScope(event);
+			const syncedCount = syncLogToContext(sessionManager, channelDir, event.ts, scope);
 			if (syncedCount > 0) {
 				log.info(`[${channelId}] Synced ${syncedCount} messages from log.jsonl`);
 			}
@@ -348,8 +349,15 @@ export async function createChannelRunner(opts: {
 				);
 
 				// Build user message with timestamp and username prefix
-				const timestamp = formatTimestamp();
-				let userMessage = `[${timestamp}] [${userName || event.user || "unknown"}]: ${event.text}`;
+				const eventThreadTs = event.threadTs && event.threadTs !== event.ts ? event.threadTs : undefined;
+				let userMessage = formatLogMessageForContext(event.source, {
+					ts: event.ts,
+					...(eventThreadTs && { threadTs: eventThreadTs }),
+					user: event.user,
+					userName,
+					text: event.text,
+					isBot: false,
+				});
 
 				// Process image attachments
 				const imageAttachments: ImageContent[] = [];
@@ -403,7 +411,7 @@ export async function createChannelRunner(opts: {
 					newUserMessage: userMessage,
 					imageAttachmentCount: imageAttachments.length,
 				};
-				await writeFile(join(channelDir, "last_prompt.jsonl"), JSON.stringify(debugContext, null, 2));
+				await writeFile(join(sessionDir, "last_prompt.jsonl"), JSON.stringify(debugContext, null, 2));
 
 				// Run with timeout
 				const timeoutMs = getRunTimeout() * 1000;
@@ -491,20 +499,33 @@ export async function createChannelRunner(opts: {
 const channelRunners = new Map<string, ChannelRunner>();
 
 /**
- * Get or create a ChannelRunner for a channel.
- * Runners are cached — one per channel, persistent across messages.
+ * Get or create a ChannelRunner for a conversation.
+ * Runners are cached by runnerId, so Slack threads can have isolated session context
+ * while still sharing the physical channel log cache.
  */
-export async function getOrCreateRunner(
-	channelId: string,
-	channelDir: string,
-	workingDir: string,
-): Promise<ChannelRunner> {
-	const existing = channelRunners.get(channelId);
+export async function getOrCreateRunner(opts: {
+	runnerId: string;
+	channelId: string;
+	channelDir: string;
+	sessionDir: string;
+	workingDir: string;
+}): Promise<ChannelRunner> {
+	const existing = channelRunners.get(opts.runnerId);
 	if (existing) return existing;
 
-	const runner = await createChannelRunner({ channelId, channelDir, workingDir });
-	channelRunners.set(channelId, runner);
+	const runner = await createChannelRunner(opts);
+	channelRunners.set(opts.runnerId, runner);
 	return runner;
+}
+
+function defaultLogContextScope(event: BotEvent): LogContextScope {
+	if (event.source === "linear") {
+		return { source: "linear", kind: "chronological" };
+	}
+	if (event.threadTs) {
+		return { source: "slack", kind: "thread", rootTs: event.threadTs };
+	}
+	return { source: "slack", kind: "channel" };
 }
 
 /**

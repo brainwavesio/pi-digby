@@ -2,7 +2,7 @@
 
 import { mkdirSync, writeFileSync } from "fs";
 import { dirname, join, resolve } from "path";
-import { getOrCreateRunner, shutdownAllRunners } from "./agent/setup.js";
+import { type ChannelRunner, getOrCreateRunner, shutdownAllRunners } from "./agent/setup.js";
 import { ChannelQueue } from "./channel/queue.js";
 import { createRunStats } from "./channel/run-stats.js";
 import { ChannelState } from "./channel/state.js";
@@ -10,6 +10,7 @@ import { initConfig } from "./config.js";
 import { createEventsWatcher } from "./events/watcher.js";
 import { HttpServer } from "./http-server.js";
 import * as log from "./log.js";
+import type { LogContextScope } from "./persistence/log.js";
 import { SlackClient } from "./slack/client.js";
 import { type RouterHandler, setupRouter } from "./slack/router.js";
 import type { Attachment, SlackEvent } from "./slack/types.js";
@@ -60,6 +61,8 @@ interface ChannelRunState {
 	queue: ChannelQueue;
 	stopRequested: boolean;
 	stopMessageTs?: string;
+	activeRunner?: ChannelRunner;
+	activeRunnerId?: string;
 }
 
 const channelStates = new Map<string, ChannelRunState>();
@@ -105,9 +108,51 @@ async function downloadAttachments(event: SlackEvent, client: SlackClient): Prom
 	event.attachments = attachments;
 }
 
+interface ConversationTarget {
+	runnerId: string;
+	sessionDir: string;
+	logContextScope: LogContextScope;
+}
+
+function safePathSegment(value: string): string {
+	return value.replace(/[^A-Za-z0-9._-]/g, "_");
+}
+
+function getSlackConversation(event: SlackEvent, channelDir: string, replyThreadTs?: string): ConversationTarget {
+	if (!replyThreadTs) {
+		return {
+			runnerId: `slack:${event.channel}:channel`,
+			sessionDir: channelDir,
+			logContextScope: { source: "slack", kind: "channel" },
+		};
+	}
+
+	return {
+		runnerId: `slack:${event.channel}:thread:${replyThreadTs}`,
+		sessionDir: join(channelDir, "threads", safePathSegment(replyThreadTs)),
+		logContextScope: { source: "slack", kind: "thread", rootTs: replyThreadTs },
+	};
+}
+
+async function hydrateSlackThreadCache(
+	client: SlackClient,
+	channelState: ChannelState,
+	channelId: string,
+	rootTs: string,
+): Promise<void> {
+	try {
+		const existing = channelState.getLogTimestampsForThread(rootTs);
+		const count = await client.backfillThread(channelId, rootTs, existing, (entry) => {
+			channelState.appendLog(entry);
+		});
+		if (count > 0) log.info(`[${channelId}] Hydrated thread ${rootTs}: ${count} messages`);
+	} catch (err) {
+		log.warn(`[${channelId}] Failed to hydrate thread ${rootTs}`, err instanceof Error ? err.message : String(err));
+	}
+}
+
 async function handleEvent(event: SlackEvent, client: SlackClient, _isEvent?: boolean): Promise<void> {
 	const state = getChannelRunState(event.channel);
-	const runner = await getOrCreateRunner(event.channel, state.channelState.channelDir, workingDir);
 
 	// Download file attachments before logging or running
 	await downloadAttachments(event, client);
@@ -122,6 +167,19 @@ async function handleEvent(event: SlackEvent, client: SlackClient, _isEvent?: bo
 			? (event.threadTs ?? event.ts) // always thread in channels
 			: event.threadTs; // DMs: thread only if already in one
 
+	const conversation = getSlackConversation(event, state.channelState.channelDir, replyThreadTs);
+	if (conversation.logContextScope.kind === "thread" && event.threadTs) {
+		await hydrateSlackThreadCache(client, state.channelState, event.channel, conversation.logContextScope.rootTs);
+	}
+
+	const runner = await getOrCreateRunner({
+		runnerId: conversation.runnerId,
+		channelId: event.channel,
+		channelDir: state.channelState.channelDir,
+		sessionDir: conversation.sessionDir,
+		workingDir,
+	});
+
 	// Stats shared between surface (footer) and event handler (updates)
 	const stats = createRunStats();
 
@@ -129,6 +187,8 @@ async function handleEvent(event: SlackEvent, client: SlackClient, _isEvent?: bo
 	const ctx = new SlackSurface(client, event.channel, stats, replyThreadTs);
 
 	state.running = true;
+	state.activeRunner = runner;
+	state.activeRunnerId = conversation.runnerId;
 	state.stopRequested = false;
 
 	log.info(`[${event.channel}] Starting run: ${event.text.substring(0, 50)}`);
@@ -144,6 +204,7 @@ async function handleEvent(event: SlackEvent, client: SlackClient, _isEvent?: bo
 			client.getAllUsers().map((u) => ({ id: u.id, userName: u.userName, displayName: u.displayName })),
 			user?.userName,
 			stats,
+			conversation.logContextScope,
 		);
 
 		if (result.stopReason === "aborted" && state.stopRequested) {
@@ -168,6 +229,10 @@ async function handleEvent(event: SlackEvent, client: SlackClient, _isEvent?: bo
 		}
 
 		state.running = false;
+		if (state.activeRunnerId === conversation.runnerId) {
+			state.activeRunner = undefined;
+			state.activeRunnerId = undefined;
+		}
 	}
 }
 
@@ -200,8 +265,7 @@ const handler: RouterHandler = {
 		const state = channelStates.get(channelId);
 		if (state?.running) {
 			state.stopRequested = true;
-			const runner = await getOrCreateRunner(channelId, state.channelState.channelDir, workingDir);
-			runner.abort();
+			state.activeRunner?.abort();
 			const ts = await client.postMessage(channelId, "_Stopping..._", threadTs);
 			state.stopMessageTs = ts;
 		} else {
@@ -298,7 +362,13 @@ if (LINEAR_API_KEY && LINEAR_WEBHOOK_SECRET) {
 		async handleEvent(event) {
 			const state = getChannelRunState(event.channel);
 			state.queue.enqueue(async () => {
-				const runner = await getOrCreateRunner(event.channel, state.channelState.channelDir, workingDir);
+				const runner = await getOrCreateRunner({
+					runnerId: event.channel,
+					channelId: event.channel,
+					channelDir: state.channelState.channelDir,
+					sessionDir: state.channelState.channelDir,
+					workingDir,
+				});
 
 				// Log user message (mirrors Slack path)
 				state.channelState.logUserMessage(event);
@@ -308,6 +378,8 @@ if (LINEAR_API_KEY && LINEAR_WEBHOOK_SECRET) {
 				const ctx = new LinearSurface(linearClient, sessionId, stats);
 
 				state.running = true;
+				state.activeRunner = runner;
+				state.activeRunnerId = event.channel;
 				state.stopRequested = false;
 
 				log.info(`[${event.channel}] Starting Linear run: ${event.text.substring(0, 50)}`);
@@ -315,7 +387,10 @@ if (LINEAR_API_KEY && LINEAR_WEBHOOK_SECRET) {
 				try {
 					ctx.emitThinking();
 
-					const result = await runner.run(ctx, event, state.channelState, [], [], undefined, stats);
+					const result = await runner.run(ctx, event, state.channelState, [], [], undefined, stats, {
+						source: "linear",
+						kind: "chronological",
+					});
 
 					if (result.stopReason === "aborted" && state.stopRequested) {
 						log.info(`[${event.channel}] Linear run stopped`);
@@ -334,6 +409,10 @@ if (LINEAR_API_KEY && LINEAR_WEBHOOK_SECRET) {
 					}
 
 					state.running = false;
+					if (state.activeRunnerId === event.channel) {
+						state.activeRunner = undefined;
+						state.activeRunnerId = undefined;
+					}
 				}
 			});
 		},
@@ -342,8 +421,7 @@ if (LINEAR_API_KEY && LINEAR_WEBHOOK_SECRET) {
 			const state = channelStates.get(channelId);
 			if (state?.running) {
 				state.stopRequested = true;
-				const runner = await getOrCreateRunner(channelId, state.channelState.channelDir, workingDir);
-				runner.abort();
+				state.activeRunner?.abort();
 				log.info(`[${channelId}] Linear stop requested`);
 			}
 		},
