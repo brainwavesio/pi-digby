@@ -483,7 +483,7 @@ export async function createChannelRunner(opts: {
 			const runner = session.extensionRunner;
 			if (runner) {
 				try {
-					await runner.emit({ type: "session_shutdown" });
+					await runner.emit({ type: "session_shutdown", reason: "quit" });
 				} catch (err) {
 					log.warn(`[${channelId}] Extension shutdown error: ${err instanceof Error ? err.message : String(err)}`);
 				}

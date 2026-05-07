@@ -1,24 +1,24 @@
 import type { AgentTool } from "@mariozechner/pi-agent-core";
-import { Type } from "@sinclair/typebox";
 import { spawn } from "child_process";
 import { writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { Type } from "typebox";
 import { formatSize, truncateTail } from "./truncate.js";
 
-export function createBashTool(): AgentTool<any> {
-	const schema = Type.Object({
-		label: Type.String({ description: "Brief description (shown to user)" }),
-		command: Type.String({ description: "The bash command to execute" }),
-		timeout: Type.Optional(Type.Number({ description: "Timeout in seconds" })),
-	});
+const bashSchema = Type.Object({
+	label: Type.String({ description: "Brief description (shown to user)" }),
+	command: Type.String({ description: "The bash command to execute" }),
+	timeout: Type.Optional(Type.Number({ description: "Timeout in seconds" })),
+});
 
+export function createBashTool(): AgentTool<typeof bashSchema> {
 	return {
 		name: "bash",
 		label: "bash",
 		description:
 			"Execute a bash command. Output truncated to last 2000 lines or 50KB. Optionally provide timeout in seconds.",
-		parameters: schema,
+		parameters: bashSchema,
 		execute: async (_toolCallId, { command, timeout }, signal, _onUpdate?) => {
 			const result = await execCommand(command, { timeout, signal });
 			return { content: [{ type: "text" as const, text: result }], details: undefined };
