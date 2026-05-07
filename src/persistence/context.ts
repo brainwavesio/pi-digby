@@ -14,7 +14,8 @@ import { SettingsManager } from "@mariozechner/pi-coding-agent";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 
-export { syncLogToContext } from "./log.js";
+export type { LogContextScope } from "./log.js";
+export { formatLogMessageForContext, syncLogToContext } from "./log.js";
 
 // ============================================================================
 // Settings manager for mom

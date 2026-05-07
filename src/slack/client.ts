@@ -291,6 +291,70 @@ export class SlackClient {
 		return relevant.length;
 	}
 
+	async backfillThread(
+		channelId: string,
+		threadTs: string,
+		existingTs: Set<string>,
+		logEntry: (entry: object) => void,
+	): Promise<number> {
+		type Msg = {
+			user?: string;
+			bot_id?: string;
+			text?: string;
+			ts?: string;
+			thread_ts?: string;
+			subtype?: string;
+			files?: Array<{ name?: string }>;
+		};
+
+		const allMessages: Msg[] = [];
+		let cursor: string | undefined;
+		let pages = 0;
+
+		do {
+			const result = await this.web.conversations.replies({
+				channel: channelId,
+				ts: threadTs,
+				limit: 1000,
+				cursor,
+			});
+			if (result.messages) allMessages.push(...(result.messages as Msg[]));
+			cursor = result.response_metadata?.next_cursor;
+			pages++;
+		} while (cursor && pages < 3);
+
+		const relevant = allMessages.filter((msg) => {
+			if (!msg.ts || existingTs.has(msg.ts)) return false;
+			if (msg.user === this.botUserId) return true;
+			if (msg.subtype !== undefined && msg.subtype !== "file_share" && msg.subtype !== "bot_message") return false;
+			if (!msg.user && !msg.bot_id) return false;
+			if (!msg.text && (!msg.files || msg.files.length === 0)) return false;
+			return true;
+		});
+
+		relevant.sort((a, b) => Number.parseFloat(a.ts ?? "0") - Number.parseFloat(b.ts ?? "0"));
+
+		for (const msg of relevant) {
+			const isMom = msg.user === this.botUserId;
+			const userId = isMom ? "bot" : (msg.user ?? msg.bot_id ?? "unknown");
+			const user = msg.user ? this.users.get(msg.user) : undefined;
+			const text = (msg.text || "").replace(/<@[A-Z0-9]+>/gi, "").trim();
+			logEntry({
+				date: new Date(Number.parseFloat(msg.ts!) * 1000).toISOString(),
+				ts: msg.ts!,
+				...(msg.thread_ts && msg.ts !== msg.thread_ts && { threadTs: msg.thread_ts }),
+				user: userId,
+				userName: isMom ? undefined : user?.userName,
+				displayName: isMom ? undefined : user?.displayName,
+				text,
+				attachments: [],
+				isBot: isMom,
+			});
+		}
+
+		return relevant.length;
+	}
+
 	// ==========================================================================
 	// Private — fetch users/channels
 	// ==========================================================================
