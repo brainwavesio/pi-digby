@@ -1,24 +1,24 @@
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { ImageContent } from "@mariozechner/pi-ai";
-import { Type } from "@sinclair/typebox";
 import { readFileSync } from "fs";
+import { Type } from "typebox";
 import { formatDimensionNote, resizeImage } from "../utils/image-resize.js";
 import { detectSupportedImageMimeTypeFromFile } from "../utils/mime.js";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateHead } from "./truncate.js";
 
-export function createReadTool(): AgentTool<any> {
-	const schema = Type.Object({
-		label: Type.String({ description: "Brief description (shown to user)" }),
-		path: Type.String({ description: "Absolute path to the file" }),
-		offset: Type.Optional(Type.Number({ description: "Line offset (1-indexed)" })),
-		limit: Type.Optional(Type.Number({ description: "Maximum lines to read" })),
-	});
+const readSchema = Type.Object({
+	label: Type.String({ description: "Brief description (shown to user)" }),
+	path: Type.String({ description: "Absolute path to the file" }),
+	offset: Type.Optional(Type.Number({ description: "Line offset (1-indexed)" })),
+	limit: Type.Optional(Type.Number({ description: "Maximum lines to read" })),
+});
 
+export function createReadTool(): AgentTool<typeof readSchema> {
 	return {
 		name: "read",
 		label: "read",
 		description: `Read file contents or view images (jpg, png, gif, webp). Text output truncated to ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB. Use offset/limit for large files.`,
-		parameters: schema,
+		parameters: readSchema,
 		execute: async (_toolCallId, { path, offset, limit }, signal, _onUpdate?) => {
 			if (signal?.aborted) throw new Error("Aborted");
 

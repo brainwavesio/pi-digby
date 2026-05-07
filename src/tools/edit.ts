@@ -1,7 +1,7 @@
 import type { AgentTool } from "@mariozechner/pi-agent-core";
-import { Type } from "@sinclair/typebox";
 import * as Diff from "diff";
 import { readFileSync, writeFileSync } from "fs";
+import { Type } from "typebox";
 
 /**
  * Generate a unified diff string with line numbers and context.
@@ -87,19 +87,19 @@ function generateDiffString(oldContent: string, newContent: string, contextLines
 	return output.join("\n");
 }
 
-export function createEditTool(): AgentTool<any> {
-	const schema = Type.Object({
-		label: Type.String({ description: "Brief description (shown to user)" }),
-		path: Type.String({ description: "Absolute path to the file" }),
-		old_text: Type.String({ description: "Exact text to find and replace" }),
-		new_text: Type.String({ description: "Replacement text" }),
-	});
+const editSchema = Type.Object({
+	label: Type.String({ description: "Brief description (shown to user)" }),
+	path: Type.String({ description: "Absolute path to the file" }),
+	old_text: Type.String({ description: "Exact text to find and replace" }),
+	new_text: Type.String({ description: "Replacement text" }),
+});
 
+export function createEditTool(): AgentTool<typeof editSchema> {
 	return {
 		name: "edit",
 		label: "edit",
 		description: "Replace exact text in a file. The old_text must appear exactly once.",
-		parameters: schema,
+		parameters: editSchema,
 		execute: async (_toolCallId, { path, old_text, new_text }, signal, _onUpdate?) => {
 			if (signal?.aborted) throw new Error("Aborted");
 
