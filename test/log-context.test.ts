@@ -130,6 +130,19 @@ describe("selectLogMessagesForContext", () => {
 		]);
 	});
 
+	it("keeps top-level bot responses in channel context for event follow-ups", () => {
+		const messages = [
+			msg({ ts: "100.000000", text: "[EVENT:ingest.json:periodic:* * * * *] first ingest", user: "system" }),
+			msg({ ts: "110.000000", text: "Found three new insights.", user: "bot", isBot: true }),
+			msg({ ts: "120.000000", text: "[EVENT:ingest.json:periodic:* * * * *] second ingest", user: "system" }),
+		];
+
+		expect(idsFor({ source: "slack", kind: "channel" }, "120.000000", messages)).toEqual([
+			"slack:100.000000",
+			"slack:110.000000",
+		]);
+	});
+
 	it("treats Slack root records with threadTs equal to ts as top-level roots", () => {
 		const messages = [
 			msg({ ts: "100.000000", threadTs: "100.000000", text: "self-thread root", userName: "tom" }),
