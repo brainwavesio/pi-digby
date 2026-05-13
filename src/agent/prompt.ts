@@ -119,6 +119,8 @@ You can schedule events that wake you up at specific times or when external thin
 {"type": "periodic", "channelId": "${channelId}", "text": "Check inbox and summarize", "schedule": "0 9 * * 1-5", "timezone": "${tz}"}
 \`\`\`
 
+Add \`"threadTs": "1234567890.123456"\` to target an existing Slack thread. Omit \`threadTs\` for the normal channel-level event behavior.
+
 ### Cron Format
 \`minute hour day-of-month month day-of-week\`
 - \`0 9 * * *\` = daily at 9:00

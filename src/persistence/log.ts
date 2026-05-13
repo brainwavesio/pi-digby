@@ -164,7 +164,6 @@ function isTopLevelSlackMessage(logMsg: LogMessage): boolean {
 function selectSlackChannelMessages(messages: LogMessage[], currentTs: string): SelectedContextMessage[] {
 	return sortLogMessages(messages)
 		.filter((logMsg) => isBeforeCurrent(logMsg, currentTs))
-		.filter((logMsg) => !logMsg.isBot)
 		.filter(isTopLevelSlackMessage)
 		.map((logMsg) => contextMessageFromLog("slack", logMsg));
 }

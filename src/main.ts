@@ -10,8 +10,8 @@ import { initConfig } from "./config.js";
 import { createEventsWatcher } from "./events/watcher.js";
 import { HttpServer } from "./http-server.js";
 import * as log from "./log.js";
-import type { LogContextScope } from "./persistence/log.js";
 import { SlackClient } from "./slack/client.js";
+import { getSlackConversationTarget } from "./slack/conversation.js";
 import { type RouterHandler, setupRouter } from "./slack/router.js";
 import type { Attachment, SlackEvent } from "./slack/types.js";
 import { SlackSurface } from "./surface/slack.js";
@@ -108,32 +108,6 @@ async function downloadAttachments(event: SlackEvent, client: SlackClient): Prom
 	event.attachments = attachments;
 }
 
-interface ConversationTarget {
-	runnerId: string;
-	sessionDir: string;
-	logContextScope: LogContextScope;
-}
-
-function safePathSegment(value: string): string {
-	return value.replace(/[^A-Za-z0-9._-]/g, "_");
-}
-
-function getSlackConversation(event: SlackEvent, channelDir: string, replyThreadTs?: string): ConversationTarget {
-	if (!replyThreadTs) {
-		return {
-			runnerId: `slack:${event.channel}:channel`,
-			sessionDir: channelDir,
-			logContextScope: { source: "slack", kind: "channel" },
-		};
-	}
-
-	return {
-		runnerId: `slack:${event.channel}:thread:${replyThreadTs}`,
-		sessionDir: join(channelDir, "threads", safePathSegment(replyThreadTs)),
-		logContextScope: { source: "slack", kind: "thread", rootTs: replyThreadTs },
-	};
-}
-
 async function hydrateSlackThreadCache(
 	client: SlackClient,
 	channelState: ChannelState,
@@ -151,7 +125,7 @@ async function hydrateSlackThreadCache(
 	}
 }
 
-async function handleEvent(event: SlackEvent, client: SlackClient, _isEvent?: boolean): Promise<void> {
+async function handleEvent(event: SlackEvent, client: SlackClient, isEvent?: boolean): Promise<void> {
 	const state = getChannelRunState(event.channel);
 
 	// Download file attachments before logging or running
@@ -161,13 +135,7 @@ async function handleEvent(event: SlackEvent, client: SlackClient, _isEvent?: bo
 	const user = client.getUser(event.user);
 	state.channelState.logUserMessage(event, user?.userName, user?.displayName);
 
-	// Determine reply thread
-	const replyThreadTs =
-		event.type === "mention"
-			? (event.threadTs ?? event.ts) // always thread in channels
-			: event.threadTs; // DMs: thread only if already in one
-
-	const conversation = getSlackConversation(event, state.channelState.channelDir, replyThreadTs);
+	const conversation = getSlackConversationTarget(event, state.channelState.channelDir, isEvent);
 	if (conversation.logContextScope.kind === "thread" && event.threadTs) {
 		await hydrateSlackThreadCache(client, state.channelState, event.channel, conversation.logContextScope.rootTs);
 	}
@@ -184,7 +152,7 @@ async function handleEvent(event: SlackEvent, client: SlackClient, _isEvent?: bo
 	const stats = createRunStats();
 
 	// Create surface — guaranteed to resolve via finally
-	const ctx = new SlackSurface(client, event.channel, stats, replyThreadTs);
+	const ctx = new SlackSurface(client, event.channel, stats, conversation.replyThreadTs);
 
 	state.running = true;
 	state.activeRunner = runner;
@@ -225,7 +193,7 @@ async function handleEvent(event: SlackEvent, client: SlackClient, _isEvent?: bo
 		const finalText = ctx.finalText;
 		const messageTs = ctx.finalMessageTs;
 		if (finalText && finalText !== THINKING_PLACEHOLDER && messageTs && !ctx.wasDeleted) {
-			state.channelState.logBotResponse(finalText, messageTs, replyThreadTs);
+			state.channelState.logBotResponse(finalText, messageTs, conversation.replyThreadTs);
 		}
 
 		state.running = false;
@@ -325,7 +293,7 @@ const startupTs = (Date.now() / 1000).toFixed(6);
 setupRouter(client, handler, startupTs);
 
 // Start events watcher (scheduled/periodic events)
-const eventsWatcher = createEventsWatcher(workingDir, ({ channelId, text, filename }) => {
+const eventsWatcher = createEventsWatcher(workingDir, ({ channelId, text, filename, threadTs }) => {
 	const event: SlackEvent = {
 		type: "mention",
 		source: "slack",
@@ -333,6 +301,7 @@ const eventsWatcher = createEventsWatcher(workingDir, ({ channelId, text, filena
 		ts: (Date.now() / 1000).toFixed(6),
 		user: "system",
 		text: `[EVENT:${filename}:${text}]`,
+		threadTs,
 	};
 	const state = getChannelRunState(channelId);
 	if (state.queue.size() >= 5) {

@@ -13,6 +13,7 @@ export interface ImmediateEvent {
 	type: "immediate";
 	channelId: string;
 	text: string;
+	threadTs?: string;
 }
 
 export interface OneShotEvent {
@@ -20,6 +21,7 @@ export interface OneShotEvent {
 	channelId: string;
 	text: string;
 	at: string; // ISO 8601 with timezone offset
+	threadTs?: string;
 }
 
 export interface PeriodicEvent {
@@ -28,6 +30,7 @@ export interface PeriodicEvent {
 	text: string;
 	schedule: string; // cron expression
 	timezone: string; // IANA timezone, e.g. "America/New_York"
+	threadTs?: string;
 }
 
 export type MomEvent = ImmediateEvent | OneShotEvent | PeriodicEvent;
@@ -37,7 +40,7 @@ export type MomEvent = ImmediateEvent | OneShotEvent | PeriodicEvent;
 // ============================================================================
 
 /** Returns true if the event was enqueued, false if the queue is full. */
-export type TriggerFn = (event: { channelId: string; text: string; filename: string }) => boolean;
+export type TriggerFn = (event: { channelId: string; text: string; filename: string; threadTs?: string }) => boolean;
 
 // ============================================================================
 // EventsWatcher
@@ -279,27 +282,39 @@ export class EventsWatcherImpl implements EventsWatcher {
 	}
 
 	private parseEvent(content: string, filename: string): MomEvent {
-		const data = JSON.parse(content);
+		const data = JSON.parse(content) as unknown;
 
-		if (!data.type || !data.channelId || !data.text) {
+		if (!isRecord(data)) {
 			throw new Error(`Missing required fields (type, channelId, text) in ${filename}`);
 		}
 
-		switch (data.type) {
+		const { type, channelId, text, threadTs } = data;
+		if (!isString(type) || !isString(channelId) || !isString(text)) {
+			throw new Error(`Missing required fields (type, channelId, text) in ${filename}`);
+		}
+		if (threadTs !== undefined && !isString(threadTs)) {
+			throw new Error(`Invalid 'threadTs' for event in ${filename}`);
+		}
+		const target = {
+			channelId,
+			text,
+			...(threadTs && { threadTs }),
+		};
+
+		switch (type) {
 			case "immediate":
-				return { type: "immediate", channelId: data.channelId, text: data.text };
+				return { type: "immediate", ...target };
 
 			case "one-shot":
-				if (!data.at) throw new Error(`Missing 'at' for one-shot event in ${filename}`);
-				return { type: "one-shot", channelId: data.channelId, text: data.text, at: data.at };
+				if (!isString(data.at)) throw new Error(`Missing 'at' for one-shot event in ${filename}`);
+				return { type: "one-shot", ...target, at: data.at };
 
 			case "periodic":
-				if (!data.schedule) throw new Error(`Missing 'schedule' for periodic event in ${filename}`);
-				if (!data.timezone) throw new Error(`Missing 'timezone' for periodic event in ${filename}`);
+				if (!isString(data.schedule)) throw new Error(`Missing 'schedule' for periodic event in ${filename}`);
+				if (!isString(data.timezone)) throw new Error(`Missing 'timezone' for periodic event in ${filename}`);
 				return {
 					type: "periodic",
-					channelId: data.channelId,
-					text: data.text,
+					...target,
 					schedule: data.schedule,
 					timezone: data.timezone,
 				};
@@ -390,7 +405,7 @@ export class EventsWatcherImpl implements EventsWatcher {
 		}
 
 		const text = `[EVENT:${filename}:${event.type}:${scheduleInfo}] ${event.text}`;
-		const enqueued = this.trigger({ channelId: event.channelId, text, filename });
+		const enqueued = this.trigger({ channelId: event.channelId, text, filename, threadTs: event.threadTs });
 
 		if (!enqueued) {
 			log.warn(`Event queue full, discarded: ${filename}`);
@@ -421,6 +436,14 @@ export class EventsWatcherImpl implements EventsWatcher {
 
 function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
+}
+
+function isString(value: unknown): value is string {
+	return typeof value === "string" && value.length > 0;
 }
 
 // ============================================================================
