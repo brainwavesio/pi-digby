@@ -195,15 +195,17 @@ function processOrBusy(
 		return;
 	}
 
-	// Check if busy — log the message even though we can't process it
+	// Check if busy — acknowledge and hand off so the channel adapter can queue it.
 	if (handler.isRunning(channel)) {
-		handler.logMessage(event);
-		const busyMsg =
+		handler.handleEvent(event).catch((err) => {
+			log.warn(`Queued handler error [${channel}]`, err instanceof Error ? err.message : String(err));
+		});
+		const queuedMsg =
 			event.type === "mention"
-				? "_Still thinking. Say `@digby stop` to cancel._"
-				: "_Still thinking. Say `stop` to cancel._";
-		client.postMessage(channel, busyMsg, event.threadTs).catch((err) => {
-			log.warn("Failed to post busy message", err instanceof Error ? err.message : String(err));
+				? "_Queued. Say `@digby stop` to cancel the current run._"
+				: "_Queued. Say `stop` to cancel the current run._";
+		client.postMessage(channel, queuedMsg, event.threadTs).catch((err) => {
+			log.warn("Failed to post queued message", err instanceof Error ? err.message : String(err));
 		});
 		return;
 	}
