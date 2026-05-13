@@ -3,6 +3,7 @@
 import { mkdirSync, writeFileSync } from "fs";
 import { dirname, join, resolve } from "path";
 import { type ChannelRunner, getOrCreateRunner, shutdownAllRunners } from "./agent/setup.js";
+import { createQueuedFollowUpTrigger, FollowUpQueue } from "./channel/follow-up-queue.js";
 import { ChannelQueue } from "./channel/queue.js";
 import { createRunStats } from "./channel/run-stats.js";
 import { ChannelState } from "./channel/state.js";
@@ -57,8 +58,10 @@ initConfig(workingDir);
 
 interface ChannelRunState {
 	running: boolean;
+	acceptingFollowUps: boolean;
 	channelState: ChannelState;
 	queue: ChannelQueue;
+	followUps: FollowUpQueue;
 	stopRequested: boolean;
 	stopMessageTs?: string;
 	activeRunner?: ChannelRunner;
@@ -72,8 +75,10 @@ function getChannelRunState(channelId: string): ChannelRunState {
 	if (!state) {
 		state = {
 			running: false,
+			acceptingFollowUps: false,
 			channelState: new ChannelState(channelId, workingDir),
 			queue: new ChannelQueue(),
+			followUps: new FollowUpQueue(),
 			stopRequested: false,
 		};
 		channelStates.set(channelId, state);
@@ -86,6 +91,7 @@ function getChannelRunState(channelId: string): ChannelRunState {
 // ============================================================================
 
 async function downloadAttachments(event: SlackEvent, client: SlackClient): Promise<void> {
+	if (event.attachments) return;
 	if (!event.files || event.files.length === 0) return;
 
 	const attachments: Attachment[] = [];
@@ -108,6 +114,17 @@ async function downloadAttachments(event: SlackEvent, client: SlackClient): Prom
 	event.attachments = attachments;
 }
 
+async function prepareAndLogSlackUserMessage(
+	state: ChannelRunState,
+	event: SlackEvent,
+	client: SlackClient,
+): Promise<string | undefined> {
+	await downloadAttachments(event, client);
+	const user = client.getUser(event.user);
+	state.channelState.logUserMessage(event, user?.userName, user?.displayName);
+	return user?.userName;
+}
+
 async function hydrateSlackThreadCache(
 	client: SlackClient,
 	channelState: ChannelState,
@@ -125,15 +142,18 @@ async function hydrateSlackThreadCache(
 	}
 }
 
-async function handleEvent(event: SlackEvent, client: SlackClient, isEvent?: boolean): Promise<void> {
+async function runSlackEvent(
+	event: SlackEvent,
+	client: SlackClient,
+	options: { isEvent?: boolean; logTrigger?: boolean } = {},
+): Promise<void> {
 	const state = getChannelRunState(event.channel);
+	const isEvent = options.isEvent ?? false;
 
-	// Download file attachments before logging or running
-	await downloadAttachments(event, client);
-
-	// Log user message (now includes downloaded attachments)
-	const user = client.getUser(event.user);
-	state.channelState.logUserMessage(event, user?.userName, user?.displayName);
+	const userName =
+		options.logTrigger === false
+			? client.getUser(event.user)?.userName
+			: await prepareAndLogSlackUserMessage(state, event, client);
 
 	const conversation = getSlackConversationTarget(event, state.channelState.channelDir, isEvent);
 	if (conversation.logContextScope.kind === "thread" && event.threadTs) {
@@ -155,6 +175,7 @@ async function handleEvent(event: SlackEvent, client: SlackClient, isEvent?: boo
 	const ctx = new SlackSurface(client, event.channel, stats, conversation.replyThreadTs);
 
 	state.running = true;
+	state.acceptingFollowUps = true;
 	state.activeRunner = runner;
 	state.activeRunnerId = conversation.runnerId;
 	state.stopRequested = false;
@@ -170,7 +191,7 @@ async function handleEvent(event: SlackEvent, client: SlackClient, isEvent?: boo
 			state.channelState,
 			client.getAllChannels().map((c) => ({ id: c.id, name: c.name })),
 			client.getAllUsers().map((u) => ({ id: u.id, userName: u.userName, displayName: u.displayName })),
-			user?.userName,
+			userName,
 			stats,
 			conversation.logContextScope,
 		);
@@ -196,12 +217,38 @@ async function handleEvent(event: SlackEvent, client: SlackClient, isEvent?: boo
 			state.channelState.logBotResponse(finalText, messageTs, conversation.replyThreadTs);
 		}
 
+		state.acceptingFollowUps = false;
+		const queuedFollowUps = state.followUps.drain(conversation.runnerId);
+		if (queuedFollowUps.length > 0) {
+			const trigger = createQueuedFollowUpTrigger(queuedFollowUps);
+			log.info(`[${event.channel}] Scheduling ${queuedFollowUps.length} queued follow-up message(s)`);
+			state.queue.enqueue(() => runSlackEvent(trigger, client, { isEvent: true, logTrigger: false }));
+		}
+
 		state.running = false;
 		if (state.activeRunnerId === conversation.runnerId) {
 			state.activeRunner = undefined;
 			state.activeRunnerId = undefined;
 		}
 	}
+}
+
+async function enqueueSlackEvent(event: SlackEvent, client: SlackClient, isEvent?: boolean): Promise<void> {
+	const state = getChannelRunState(event.channel);
+	const conversation = getSlackConversationTarget(event, state.channelState.channelDir, isEvent);
+
+	if (state.running && state.acceptingFollowUps && state.activeRunnerId === conversation.runnerId) {
+		await downloadAttachments(event, client);
+		if (state.running && state.acceptingFollowUps && state.activeRunnerId === conversation.runnerId) {
+			const user = client.getUser(event.user);
+			state.channelState.logUserMessage(event, user?.userName, user?.displayName);
+			const count = state.followUps.enqueue(conversation.runnerId, event);
+			log.info(`[${event.channel}] Queued follow-up ${count} for ${conversation.runnerId}`);
+			return;
+		}
+	}
+
+	state.queue.enqueue(() => runSlackEvent(event, client, { isEvent }));
 }
 
 // ============================================================================
@@ -219,8 +266,7 @@ const handler: RouterHandler = {
 	},
 
 	async handleEvent(event: SlackEvent, isEvent?: boolean): Promise<void> {
-		const state = getChannelRunState(event.channel);
-		state.queue.enqueue(() => handleEvent(event, client, isEvent));
+		await enqueueSlackEvent(event, client, isEvent);
 	},
 
 	logMessage(event: SlackEvent): void {
@@ -308,7 +354,9 @@ const eventsWatcher = createEventsWatcher(workingDir, ({ channelId, text, filena
 		log.warn(`Event queue full for ${channelId}, discarding: ${text.substring(0, 50)}`);
 		return false;
 	}
-	state.queue.enqueue(() => handleEvent(event, client, true));
+	enqueueSlackEvent(event, client, true).catch((err) => {
+		log.warn(`[${channelId}] Failed to enqueue event`, err instanceof Error ? err.message : String(err));
+	});
 	return true;
 });
 eventsWatcher.start();

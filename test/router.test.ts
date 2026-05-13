@@ -374,7 +374,7 @@ describe("Router", () => {
 	// ==========================================================================
 
 	describe("busy and stop", () => {
-		it("posts busy message when running", async () => {
+		it("queues message and posts acknowledgement when running", async () => {
 			h.setRunning(true);
 			mock.simulateMessage({
 				text: "hello",
@@ -383,13 +383,13 @@ describe("Router", () => {
 				ts: AFTER_STARTUP,
 				channel_type: "im",
 			});
-			expect(h.logged).toHaveLength(1);
-			expect(h.handled).toHaveLength(0);
+			await vi.waitFor(() => expect(h.handled).toHaveLength(1));
+			expect(h.logged).toHaveLength(0);
 			expect(mock.calls).toHaveLength(1);
-			expect(mock.calls[0].args[1]).toContain("Still thinking");
+			expect(mock.calls[0].args[1]).toContain("Queued");
 		});
 
-		it("does not post duplicate busy messages for replayed events", () => {
+		it("does not post duplicate queued acknowledgements for replayed events", async () => {
 			h.setRunning(true);
 			const event = {
 				text: "hello",
@@ -402,7 +402,9 @@ describe("Router", () => {
 			mock.simulateMessage(event);
 			mock.simulateMessage(event);
 
-			expect(h.logged).toHaveLength(1);
+			await vi.waitFor(() => expect(h.handled).toHaveLength(1));
+			expect(h.logged).toHaveLength(0);
+			expect(h.handler.handleEvent).toHaveBeenCalledTimes(1);
 			expect(mock.calls).toHaveLength(1);
 		});
 
