@@ -19,6 +19,17 @@ function slackEvent(ts: string, text: string, threadTs?: string, attachmentName?
 	};
 }
 
+function linearEvent(ts: string, text: string): BotEvent {
+	return {
+		type: "agent_session",
+		source: "linear",
+		channel: "linear:session-1",
+		ts,
+		user: "linear-user",
+		text,
+	};
+}
+
 describe("FollowUpQueue", () => {
 	it("drains queued events for one runner in arrival order", () => {
 		const queue = new FollowUpQueue();
@@ -47,6 +58,21 @@ describe("FollowUpQueue", () => {
 		expect(trigger.threadTs).toBe("99.000000");
 		expect(Number.parseFloat(trigger.ts)).toBeGreaterThan(100.000002);
 		expect(trigger.text).toBe(formatQueuedFollowUpPrompt(2, "slack"));
+	});
+
+	it("creates a synthetic Linear trigger for the same agent session", () => {
+		const trigger = createQueuedFollowUpTrigger(
+			[linearEvent("100.000001", "first"), linearEvent("100.000002", "second")],
+			100_000,
+		);
+
+		expect(trigger.type).toBe("agent_session");
+		expect(trigger.source).toBe("linear");
+		expect(trigger.channel).toBe("linear:session-1");
+		expect(trigger.user).toBe("system");
+		expect(trigger.threadTs).toBeUndefined();
+		expect(Number.parseFloat(trigger.ts)).toBeGreaterThan(100.000002);
+		expect(trigger.text).toBe(formatQueuedFollowUpPrompt(2, "linear"));
 	});
 
 	it("carries downloaded attachments into the synthetic trigger", () => {

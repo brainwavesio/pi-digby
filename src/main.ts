@@ -17,6 +17,7 @@ import { type RouterHandler, setupRouter } from "./slack/router.js";
 import type { Attachment, SlackEvent } from "./slack/types.js";
 import { SlackSurface } from "./surface/slack.js";
 import { THINKING_PLACEHOLDER } from "./surface/types.js";
+import type { BotEvent } from "./types.js";
 
 // ============================================================================
 // Config
@@ -375,63 +376,91 @@ if (LINEAR_API_KEY && LINEAR_WEBHOOK_SECRET) {
 
 	const linearClient = new LinearClient(LINEAR_API_KEY);
 
+	async function runLinearEvent(event: BotEvent, options: { logTrigger?: boolean } = {}): Promise<void> {
+		const state = getChannelRunState(event.channel);
+		const runnerId = event.channel;
+
+		if (options.logTrigger !== false) {
+			state.channelState.logUserMessage(event);
+		}
+
+		const runner = await getOrCreateRunner({
+			runnerId,
+			channelId: event.channel,
+			channelDir: state.channelState.channelDir,
+			sessionDir: state.channelState.channelDir,
+			workingDir,
+		});
+
+		const stats = createRunStats();
+		const sessionId = event.channel.replace("linear:", "");
+		const ctx = new LinearSurface(linearClient, sessionId, stats);
+
+		state.running = true;
+		state.acceptingFollowUps = true;
+		state.activeRunner = runner;
+		state.activeRunnerId = runnerId;
+		state.stopRequested = false;
+
+		log.info(`[${event.channel}] Starting Linear run: ${event.text.substring(0, 50)}`);
+
+		try {
+			ctx.emitThinking();
+
+			const result = await runner.run(ctx, event, state.channelState, [], [], undefined, stats, {
+				source: "linear",
+				kind: "chronological",
+			});
+
+			if (result.stopReason === "aborted" && state.stopRequested) {
+				log.info(`[${event.channel}] Linear run stopped`);
+			}
+		} catch (err) {
+			const errMsg = err instanceof Error ? err.message : String(err);
+			log.warn(`[${event.channel}] Linear run error`, errMsg);
+			ctx.reject(`Something went wrong: ${errMsg.substring(0, 500)}`);
+		} finally {
+			ctx.resolve();
+			await ctx.flush();
+
+			const finalText = ctx.finalText;
+			if (finalText && finalText !== THINKING_PLACEHOLDER && !ctx.wasDeleted) {
+				state.channelState.logBotResponse(finalText, String(Date.now() / 1000));
+			}
+
+			state.acceptingFollowUps = false;
+			const queuedFollowUps = state.followUps.drain(runnerId);
+			if (queuedFollowUps.length > 0) {
+				const trigger = createQueuedFollowUpTrigger(queuedFollowUps);
+				log.info(`[${event.channel}] Scheduling ${queuedFollowUps.length} queued Linear follow-up message(s)`);
+				state.queue.enqueue(() => runLinearEvent(trigger, { logTrigger: false }));
+			}
+
+			state.running = false;
+			if (state.activeRunnerId === runnerId) {
+				state.activeRunner = undefined;
+				state.activeRunnerId = undefined;
+			}
+		}
+	}
+
+	async function enqueueLinearEvent(event: BotEvent): Promise<void> {
+		const state = getChannelRunState(event.channel);
+		const runnerId = event.channel;
+
+		if (state.running && state.acceptingFollowUps && state.activeRunnerId === runnerId) {
+			state.channelState.logUserMessage(event);
+			const count = state.followUps.enqueue(runnerId, event);
+			log.info(`[${event.channel}] Queued Linear follow-up ${count}`);
+			return;
+		}
+
+		state.queue.enqueue(() => runLinearEvent(event));
+	}
+
 	const linearHandler = createLinearWebhookHandler(LINEAR_WEBHOOK_SECRET, {
 		async handleEvent(event) {
-			const state = getChannelRunState(event.channel);
-			state.queue.enqueue(async () => {
-				const runner = await getOrCreateRunner({
-					runnerId: event.channel,
-					channelId: event.channel,
-					channelDir: state.channelState.channelDir,
-					sessionDir: state.channelState.channelDir,
-					workingDir,
-				});
-
-				// Log user message (mirrors Slack path)
-				state.channelState.logUserMessage(event);
-
-				const stats = createRunStats();
-				const sessionId = event.channel.replace("linear:", "");
-				const ctx = new LinearSurface(linearClient, sessionId, stats);
-
-				state.running = true;
-				state.activeRunner = runner;
-				state.activeRunnerId = event.channel;
-				state.stopRequested = false;
-
-				log.info(`[${event.channel}] Starting Linear run: ${event.text.substring(0, 50)}`);
-
-				try {
-					ctx.emitThinking();
-
-					const result = await runner.run(ctx, event, state.channelState, [], [], undefined, stats, {
-						source: "linear",
-						kind: "chronological",
-					});
-
-					if (result.stopReason === "aborted" && state.stopRequested) {
-						log.info(`[${event.channel}] Linear run stopped`);
-					}
-				} catch (err) {
-					const errMsg = err instanceof Error ? err.message : String(err);
-					log.warn(`[${event.channel}] Linear run error`, errMsg);
-					ctx.reject(`Something went wrong: ${errMsg.substring(0, 500)}`);
-				} finally {
-					ctx.resolve();
-					await ctx.flush();
-
-					const finalText = ctx.finalText;
-					if (finalText && finalText !== THINKING_PLACEHOLDER && !ctx.wasDeleted) {
-						state.channelState.logBotResponse(finalText, String(Date.now() / 1000));
-					}
-
-					state.running = false;
-					if (state.activeRunnerId === event.channel) {
-						state.activeRunner = undefined;
-						state.activeRunnerId = undefined;
-					}
-				}
-			});
+			await enqueueLinearEvent(event);
 		},
 
 		async handleStop(channelId) {
