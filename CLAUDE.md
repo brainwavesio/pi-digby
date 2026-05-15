@@ -40,6 +40,7 @@ Use `npm run check` to validate changes before committing. The pre-commit hook r
 | `src/persistence/` | log.jsonl sync, context.jsonl, MEMORY.md |
 | `src/events/` | Scheduled/periodic event watcher |
 | `deploy/` | AWS CloudFormation + ECS task definition |
+| `docs/architecture.md` | Current runtime, lane, log, and context architecture |
 | `docs/` | Migration plan, harness design docs |
 | `.pi/mcp.json` | Default MCP server config |
 
