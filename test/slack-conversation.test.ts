@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { getSlackConversationTarget, slackReplyThreadTs } from "../src/slack/conversation.js";
+import {
+	getSlackConversationTarget,
+	getSlackStopConversationTarget,
+	slackReplyThreadTs,
+	slackStopReplyThreadTs,
+} from "../src/slack/conversation.js";
 import type { SlackEvent } from "../src/slack/types.js";
 
 function event(opts: Partial<SlackEvent> = {}): SlackEvent {
@@ -47,6 +52,28 @@ describe("Slack conversation targeting", () => {
 		expect(slackReplyThreadTs(slackEvent, true)).toBe("1699999999.000000");
 		expect(target.replyThreadTs).toBe("1699999999.000000");
 		expect(target.runnerId).toBe("slack:C123:thread:1699999999.000000");
+		expect(target.logContextScope).toEqual({ source: "slack", kind: "thread", rootTs: "1699999999.000000" });
+	});
+
+	it("targets top-level stop commands at the channel lane", () => {
+		const slackEvent = event({ text: "stop" });
+		const target = getSlackStopConversationTarget(slackEvent, "/tmp/C123");
+
+		expect(slackStopReplyThreadTs(slackEvent)).toBeUndefined();
+		expect(target.replyThreadTs).toBeUndefined();
+		expect(target.runnerId).toBe("slack:C123:channel");
+		expect(target.sessionDir).toBe("/tmp/C123");
+		expect(target.logContextScope).toEqual({ source: "slack", kind: "channel" });
+	});
+
+	it("targets threaded stop commands at the existing thread lane", () => {
+		const slackEvent = event({ text: "stop", threadTs: "1699999999.000000" });
+		const target = getSlackStopConversationTarget(slackEvent, "/tmp/C123");
+
+		expect(slackStopReplyThreadTs(slackEvent)).toBe("1699999999.000000");
+		expect(target.replyThreadTs).toBe("1699999999.000000");
+		expect(target.runnerId).toBe("slack:C123:thread:1699999999.000000");
+		expect(target.sessionDir).toBe("/tmp/C123/threads/1699999999.000000");
 		expect(target.logContextScope).toEqual({ source: "slack", kind: "thread", rootTs: "1699999999.000000" });
 	});
 });

@@ -12,7 +12,7 @@ import { createEventsWatcher } from "./events/watcher.js";
 import { HttpServer } from "./http-server.js";
 import * as log from "./log.js";
 import { SlackClient } from "./slack/client.js";
-import { getSlackConversationTarget } from "./slack/conversation.js";
+import { getSlackConversationTarget, getSlackStopConversationTarget } from "./slack/conversation.js";
 import { type RouterHandler, setupRouter } from "./slack/router.js";
 import type { Attachment, SlackEvent } from "./slack/types.js";
 import { SlackSurface } from "./surface/slack.js";
@@ -58,15 +58,18 @@ initConfig(workingDir);
 // ============================================================================
 
 interface ChannelRunState {
+	channelState: ChannelState;
+	lanes: Map<string, LaneRunState>;
+}
+
+interface LaneRunState {
 	running: boolean;
 	acceptingFollowUps: boolean;
-	channelState: ChannelState;
 	queue: ChannelQueue;
 	followUps: FollowUpQueue;
 	stopRequested: boolean;
 	stopMessageTs?: string;
 	activeRunner?: ChannelRunner;
-	activeRunnerId?: string;
 }
 
 const channelStates = new Map<string, ChannelRunState>();
@@ -75,16 +78,31 @@ function getChannelRunState(channelId: string): ChannelRunState {
 	let state = channelStates.get(channelId);
 	if (!state) {
 		state = {
-			running: false,
-			acceptingFollowUps: false,
 			channelState: new ChannelState(channelId, workingDir),
-			queue: new ChannelQueue(),
-			followUps: new FollowUpQueue(),
-			stopRequested: false,
+			lanes: new Map(),
 		};
 		channelStates.set(channelId, state);
 	}
 	return state;
+}
+
+function getLaneRunState(state: ChannelRunState, laneId: string): LaneRunState {
+	let lane = state.lanes.get(laneId);
+	if (!lane) {
+		lane = {
+			running: false,
+			acceptingFollowUps: false,
+			queue: new ChannelQueue(),
+			followUps: new FollowUpQueue(),
+			stopRequested: false,
+		};
+		state.lanes.set(laneId, lane);
+	}
+	return lane;
+}
+
+function isLaneBusy(lane: LaneRunState | undefined): boolean {
+	return !!lane && (lane.running || lane.queue.isBusy());
 }
 
 // ============================================================================
@@ -150,24 +168,12 @@ async function runSlackEvent(
 ): Promise<void> {
 	const state = getChannelRunState(event.channel);
 	const isEvent = options.isEvent ?? false;
-
-	const userName =
-		options.logTrigger === false
-			? client.getUser(event.user)?.userName
-			: await prepareAndLogSlackUserMessage(state, event, client);
-
 	const conversation = getSlackConversationTarget(event, state.channelState.channelDir, isEvent);
-	if (conversation.logContextScope.kind === "thread" && event.threadTs) {
-		await hydrateSlackThreadCache(client, state.channelState, event.channel, conversation.logContextScope.rootTs);
-	}
+	const lane = getLaneRunState(state, conversation.runnerId);
 
-	const runner = await getOrCreateRunner({
-		runnerId: conversation.runnerId,
-		channelId: event.channel,
-		channelDir: state.channelState.channelDir,
-		sessionDir: conversation.sessionDir,
-		workingDir,
-	});
+	lane.running = true;
+	lane.acceptingFollowUps = false;
+	lane.activeRunner = undefined;
 
 	// Stats shared between surface (footer) and event handler (updates)
 	const stats = createRunStats();
@@ -175,15 +181,32 @@ async function runSlackEvent(
 	// Create surface — guaranteed to resolve via finally
 	const ctx = new SlackSurface(client, event.channel, stats, conversation.replyThreadTs);
 
-	state.running = true;
-	state.acceptingFollowUps = true;
-	state.activeRunner = runner;
-	state.activeRunnerId = conversation.runnerId;
-	state.stopRequested = false;
-
-	log.info(`[${event.channel}] Starting run: ${event.text.substring(0, 50)}`);
-
 	try {
+		const userName =
+			options.logTrigger === false
+				? client.getUser(event.user)?.userName
+				: await prepareAndLogSlackUserMessage(state, event, client);
+
+		if (conversation.logContextScope.kind === "thread" && event.threadTs) {
+			await hydrateSlackThreadCache(client, state.channelState, event.channel, conversation.logContextScope.rootTs);
+		}
+
+		const runner = await getOrCreateRunner({
+			runnerId: conversation.runnerId,
+			channelId: event.channel,
+			channelDir: state.channelState.channelDir,
+			sessionDir: conversation.sessionDir,
+			workingDir,
+		});
+
+		lane.activeRunner = runner;
+		if (lane.stopRequested) {
+			runner.abort();
+		}
+		lane.acceptingFollowUps = true;
+
+		log.info(`[${event.channel}] Starting run: ${event.text.substring(0, 50)}`);
+
 		ctx.emitThinking();
 
 		const result = await runner.run(
@@ -197,10 +220,10 @@ async function runSlackEvent(
 			conversation.logContextScope,
 		);
 
-		if (result.stopReason === "aborted" && state.stopRequested) {
-			if (state.stopMessageTs) {
-				await client.updateMessage(event.channel, state.stopMessageTs, "_Stopped_");
-				state.stopMessageTs = undefined;
+		if (result.stopReason === "aborted" && lane.stopRequested) {
+			if (lane.stopMessageTs) {
+				await client.updateMessage(event.channel, lane.stopMessageTs, "_Stopped_");
+				lane.stopMessageTs = undefined;
 			}
 		}
 	} catch (err) {
@@ -218,38 +241,38 @@ async function runSlackEvent(
 			state.channelState.logBotResponse(finalText, messageTs, conversation.replyThreadTs);
 		}
 
-		state.acceptingFollowUps = false;
-		const queuedFollowUps = state.followUps.drain(conversation.runnerId);
+		lane.acceptingFollowUps = false;
+		const queuedFollowUps = lane.followUps.drain(conversation.runnerId);
 		if (queuedFollowUps.length > 0) {
 			const trigger = createQueuedFollowUpTrigger(queuedFollowUps);
 			log.info(`[${event.channel}] Scheduling ${queuedFollowUps.length} queued follow-up message(s)`);
-			state.queue.enqueue(() => runSlackEvent(trigger, client, { isEvent: true, logTrigger: false }));
+			lane.queue.enqueue(() => runSlackEvent(trigger, client, { isEvent: true, logTrigger: false }));
 		}
 
-		state.running = false;
-		if (state.activeRunnerId === conversation.runnerId) {
-			state.activeRunner = undefined;
-			state.activeRunnerId = undefined;
-		}
+		lane.running = false;
+		lane.activeRunner = undefined;
+		lane.stopRequested = false;
+		lane.stopMessageTs = undefined;
 	}
 }
 
 async function enqueueSlackEvent(event: SlackEvent, client: SlackClient, isEvent?: boolean): Promise<void> {
 	const state = getChannelRunState(event.channel);
 	const conversation = getSlackConversationTarget(event, state.channelState.channelDir, isEvent);
+	const lane = getLaneRunState(state, conversation.runnerId);
 
-	if (state.running && state.acceptingFollowUps && state.activeRunnerId === conversation.runnerId) {
+	if (lane.running && lane.acceptingFollowUps) {
 		await downloadAttachments(event, client);
-		if (state.running && state.acceptingFollowUps && state.activeRunnerId === conversation.runnerId) {
+		if (lane.running && lane.acceptingFollowUps) {
 			const user = client.getUser(event.user);
 			state.channelState.logUserMessage(event, user?.userName, user?.displayName);
-			const count = state.followUps.enqueue(conversation.runnerId, event);
+			const count = lane.followUps.enqueue(conversation.runnerId, event);
 			log.info(`[${event.channel}] Queued follow-up ${count} for ${conversation.runnerId}`);
 			return;
 		}
 	}
 
-	state.queue.enqueue(() => runSlackEvent(event, client, { isEvent }));
+	lane.queue.enqueue(() => runSlackEvent(event, client, { isEvent }));
 }
 
 // ============================================================================
@@ -262,8 +285,10 @@ const client = new SlackClient({
 });
 
 const handler: RouterHandler = {
-	isRunning(channelId: string): boolean {
-		return channelStates.get(channelId)?.running ?? false;
+	isBusy(event: SlackEvent): boolean {
+		const state = getChannelRunState(event.channel);
+		const conversation = getSlackConversationTarget(event, state.channelState.channelDir);
+		return isLaneBusy(state.lanes.get(conversation.runnerId));
 	},
 
 	async handleEvent(event: SlackEvent, isEvent?: boolean): Promise<void> {
@@ -276,15 +301,17 @@ const handler: RouterHandler = {
 		state.channelState.logUserMessage(event, user?.userName, user?.displayName);
 	},
 
-	async handleStop(channelId: string, threadTs?: string): Promise<void> {
-		const state = channelStates.get(channelId);
-		if (state?.running) {
-			state.stopRequested = true;
-			state.activeRunner?.abort();
-			const ts = await client.postMessage(channelId, "_Stopping..._", threadTs);
-			state.stopMessageTs = ts;
+	async handleStop(event: SlackEvent): Promise<void> {
+		const state = getChannelRunState(event.channel);
+		const conversation = getSlackStopConversationTarget(event, state.channelState.channelDir);
+		const lane = getLaneRunState(state, conversation.runnerId);
+		if (isLaneBusy(lane)) {
+			lane.stopRequested = true;
+			lane.activeRunner?.abort();
+			const ts = await client.postMessage(event.channel, "_Stopping..._", conversation.replyThreadTs);
+			lane.stopMessageTs = ts;
 		} else {
-			await client.postMessage(channelId, "_Nothing running_", threadTs);
+			await client.postMessage(event.channel, "_Nothing running_", conversation.replyThreadTs);
 		}
 	},
 };
@@ -351,7 +378,9 @@ const eventsWatcher = createEventsWatcher(workingDir, ({ channelId, text, filena
 		threadTs,
 	};
 	const state = getChannelRunState(channelId);
-	if (state.queue.size() >= 5) {
+	const conversation = getSlackConversationTarget(event, state.channelState.channelDir, true);
+	const lane = getLaneRunState(state, conversation.runnerId);
+	if (lane.queue.size() >= 5) {
 		log.warn(`Event queue full for ${channelId}, discarding: ${text.substring(0, 50)}`);
 		return false;
 	}
@@ -379,32 +408,37 @@ if (LINEAR_API_KEY && LINEAR_WEBHOOK_SECRET) {
 	async function runLinearEvent(event: BotEvent, options: { logTrigger?: boolean } = {}): Promise<void> {
 		const state = getChannelRunState(event.channel);
 		const runnerId = event.channel;
+		const lane = getLaneRunState(state, runnerId);
 
-		if (options.logTrigger !== false) {
-			state.channelState.logUserMessage(event);
-		}
-
-		const runner = await getOrCreateRunner({
-			runnerId,
-			channelId: event.channel,
-			channelDir: state.channelState.channelDir,
-			sessionDir: state.channelState.channelDir,
-			workingDir,
-		});
+		lane.running = true;
+		lane.acceptingFollowUps = false;
+		lane.activeRunner = undefined;
 
 		const stats = createRunStats();
 		const sessionId = event.channel.replace("linear:", "");
 		const ctx = new LinearSurface(linearClient, sessionId, stats);
 
-		state.running = true;
-		state.acceptingFollowUps = true;
-		state.activeRunner = runner;
-		state.activeRunnerId = runnerId;
-		state.stopRequested = false;
-
-		log.info(`[${event.channel}] Starting Linear run: ${event.text.substring(0, 50)}`);
-
 		try {
+			if (options.logTrigger !== false) {
+				state.channelState.logUserMessage(event);
+			}
+
+			const runner = await getOrCreateRunner({
+				runnerId,
+				channelId: event.channel,
+				channelDir: state.channelState.channelDir,
+				sessionDir: state.channelState.channelDir,
+				workingDir,
+			});
+
+			lane.activeRunner = runner;
+			if (lane.stopRequested) {
+				runner.abort();
+			}
+			lane.acceptingFollowUps = true;
+
+			log.info(`[${event.channel}] Starting Linear run: ${event.text.substring(0, 50)}`);
+
 			ctx.emitThinking();
 
 			const result = await runner.run(ctx, event, state.channelState, [], [], undefined, stats, {
@@ -412,7 +446,7 @@ if (LINEAR_API_KEY && LINEAR_WEBHOOK_SECRET) {
 				kind: "chronological",
 			});
 
-			if (result.stopReason === "aborted" && state.stopRequested) {
+			if (result.stopReason === "aborted" && lane.stopRequested) {
 				log.info(`[${event.channel}] Linear run stopped`);
 			}
 		} catch (err) {
@@ -428,34 +462,34 @@ if (LINEAR_API_KEY && LINEAR_WEBHOOK_SECRET) {
 				state.channelState.logBotResponse(finalText, String(Date.now() / 1000));
 			}
 
-			state.acceptingFollowUps = false;
-			const queuedFollowUps = state.followUps.drain(runnerId);
+			lane.acceptingFollowUps = false;
+			const queuedFollowUps = lane.followUps.drain(runnerId);
 			if (queuedFollowUps.length > 0) {
 				const trigger = createQueuedFollowUpTrigger(queuedFollowUps);
 				log.info(`[${event.channel}] Scheduling ${queuedFollowUps.length} queued Linear follow-up message(s)`);
-				state.queue.enqueue(() => runLinearEvent(trigger, { logTrigger: false }));
+				lane.queue.enqueue(() => runLinearEvent(trigger, { logTrigger: false }));
 			}
 
-			state.running = false;
-			if (state.activeRunnerId === runnerId) {
-				state.activeRunner = undefined;
-				state.activeRunnerId = undefined;
-			}
+			lane.running = false;
+			lane.activeRunner = undefined;
+			lane.stopRequested = false;
+			lane.stopMessageTs = undefined;
 		}
 	}
 
 	async function enqueueLinearEvent(event: BotEvent): Promise<void> {
 		const state = getChannelRunState(event.channel);
 		const runnerId = event.channel;
+		const lane = getLaneRunState(state, runnerId);
 
-		if (state.running && state.acceptingFollowUps && state.activeRunnerId === runnerId) {
+		if (lane.running && lane.acceptingFollowUps) {
 			state.channelState.logUserMessage(event);
-			const count = state.followUps.enqueue(runnerId, event);
+			const count = lane.followUps.enqueue(runnerId, event);
 			log.info(`[${event.channel}] Queued Linear follow-up ${count}`);
 			return;
 		}
 
-		state.queue.enqueue(() => runLinearEvent(event));
+		lane.queue.enqueue(() => runLinearEvent(event));
 	}
 
 	const linearHandler = createLinearWebhookHandler(LINEAR_WEBHOOK_SECRET, {
@@ -464,10 +498,11 @@ if (LINEAR_API_KEY && LINEAR_WEBHOOK_SECRET) {
 		},
 
 		async handleStop(channelId) {
-			const state = channelStates.get(channelId);
-			if (state?.running) {
-				state.stopRequested = true;
-				state.activeRunner?.abort();
+			const state = getChannelRunState(channelId);
+			const lane = getLaneRunState(state, channelId);
+			if (isLaneBusy(lane)) {
+				lane.stopRequested = true;
+				lane.activeRunner?.abort();
 				log.info(`[${channelId}] Linear stop requested`);
 			}
 		},

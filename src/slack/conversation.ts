@@ -19,12 +19,35 @@ export function slackReplyThreadTs(event: SlackEvent, isEvent = false): string |
 	return event.threadTs;
 }
 
+export function slackStopReplyThreadTs(event: SlackEvent): string | undefined {
+	return event.threadTs;
+}
+
 export function getSlackConversationTarget(
 	event: SlackEvent,
 	channelDir: string,
 	isEvent = false,
 ): SlackConversationTarget {
 	const replyThreadTs = slackReplyThreadTs(event, isEvent);
+
+	if (!replyThreadTs) {
+		return {
+			runnerId: `slack:${event.channel}:channel`,
+			sessionDir: channelDir,
+			logContextScope: { source: "slack", kind: "channel" },
+		};
+	}
+
+	return {
+		runnerId: `slack:${event.channel}:thread:${replyThreadTs}`,
+		sessionDir: join(channelDir, "threads", safePathSegment(replyThreadTs)),
+		replyThreadTs,
+		logContextScope: { source: "slack", kind: "thread", rootTs: replyThreadTs },
+	};
+}
+
+export function getSlackStopConversationTarget(event: SlackEvent, channelDir: string): SlackConversationTarget {
+	const replyThreadTs = slackStopReplyThreadTs(event);
 
 	if (!replyThreadTs) {
 		return {

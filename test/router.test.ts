@@ -50,10 +50,10 @@ function createMockClient() {
 function createMockHandler() {
 	const logged: SlackEvent[] = [];
 	const handled: SlackEvent[] = [];
-	let running = false;
+	let isBusy = false;
 
 	const handler: RouterHandler = {
-		isRunning: () => running,
+		isBusy: vi.fn(() => isBusy),
 		handleEvent: vi.fn(async (event: SlackEvent) => {
 			handled.push(event);
 		}),
@@ -63,7 +63,7 @@ function createMockHandler() {
 		}),
 	};
 
-	return { handler, logged, handled, setRunning: (v: boolean) => (running = v) };
+	return { handler, logged, handled, setBusy: (v: boolean) => (isBusy = v) };
 }
 
 const STARTUP_TS = "1700000000.000000";
@@ -375,7 +375,7 @@ describe("Router", () => {
 
 	describe("busy and stop", () => {
 		it("queues message and posts acknowledgement when running", async () => {
-			h.setRunning(true);
+			h.setBusy(true);
 			mock.simulateMessage({
 				text: "hello",
 				channel: "C_DM",
@@ -390,7 +390,7 @@ describe("Router", () => {
 		});
 
 		it("does not post duplicate queued acknowledgements for replayed events", async () => {
-			h.setRunning(true);
+			h.setBusy(true);
 			const event = {
 				text: "hello",
 				channel: "C_BUSY_DEDUP",
@@ -409,7 +409,7 @@ describe("Router", () => {
 		});
 
 		it("handles stop when running", async () => {
-			h.setRunning(true);
+			h.setBusy(true);
 			mock.simulateMessage({
 				text: "stop",
 				channel: "C_DM",
@@ -418,11 +418,13 @@ describe("Router", () => {
 				channel_type: "im",
 			});
 			expect(h.logged).toHaveLength(1);
-			expect(h.handler.handleStop).toHaveBeenCalledWith("C_DM", undefined);
+			expect(h.handler.handleStop).toHaveBeenCalledWith(
+				expect.objectContaining({ channel: "C_DM", text: "stop", threadTs: undefined }),
+			);
 		});
 
-		it("posts nothing-running on stop when idle", () => {
-			h.setRunning(false);
+		it("delegates stop to handler when idle", () => {
+			h.setBusy(false);
 			mock.simulateMessage({
 				text: "stop",
 				channel: "C_DM",
@@ -430,8 +432,10 @@ describe("Router", () => {
 				ts: AFTER_STARTUP,
 				channel_type: "im",
 			});
-			expect(mock.calls).toHaveLength(1);
-			expect(mock.calls[0].args[1]).toContain("Nothing running");
+			expect(h.handler.handleStop).toHaveBeenCalledWith(
+				expect.objectContaining({ channel: "C_DM", text: "stop", threadTs: undefined }),
+			);
+			expect(mock.calls).toHaveLength(0);
 		});
 	});
 
