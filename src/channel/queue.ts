@@ -13,6 +13,14 @@ export class ChannelQueue {
 		return this.queue.length;
 	}
 
+	isProcessing(): boolean {
+		return this.processing;
+	}
+
+	isBusy(): boolean {
+		return this.processing || this.queue.length > 0;
+	}
+
 	private async processNext(): Promise<void> {
 		if (this.processing || this.queue.length === 0) return;
 		this.processing = true;

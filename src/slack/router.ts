@@ -5,12 +5,12 @@ import type { SlackClient } from "./client.js";
 import type { SlackEvent } from "./types.js";
 
 export interface RouterHandler {
-	/** Check if channel is currently running (SYNC) */
-	isRunning(channelId: string): boolean;
+	/** Check if this event's conversation lane is currently busy (SYNC) */
+	isBusy(event: SlackEvent): boolean;
 	/** Handle an event that triggers the bot (ASYNC) */
 	handleEvent(event: SlackEvent, isEvent?: boolean): Promise<void>;
 	/** Handle stop command */
-	handleStop(channelId: string, threadTs?: string): Promise<void>;
+	handleStop(event: SlackEvent): Promise<void>;
 	/** Log a message to log.jsonl without triggering a run */
 	logMessage(event: SlackEvent): void;
 }
@@ -183,20 +183,14 @@ function processOrBusy(
 	// Stop command — log and execute immediately, don't queue
 	if (text === "stop") {
 		handler.logMessage(event);
-		if (handler.isRunning(channel)) {
-			handler.handleStop(channel, event.threadTs).catch((err) => {
-				log.warn(`Stop handler error [${channel}]`, err instanceof Error ? err.message : String(err));
-			});
-		} else {
-			client.postMessage(channel, "_Nothing running_", event.threadTs).catch((err) => {
-				log.warn("Failed to post 'nothing running'", err instanceof Error ? err.message : String(err));
-			});
-		}
+		handler.handleStop(event).catch((err) => {
+			log.warn(`Stop handler error [${channel}]`, err instanceof Error ? err.message : String(err));
+		});
 		return;
 	}
 
 	// Check if busy — acknowledge and hand off so the channel adapter can queue it.
-	if (handler.isRunning(channel)) {
+	if (handler.isBusy(event)) {
 		handler.handleEvent(event).catch((err) => {
 			log.warn(`Queued handler error [${channel}]`, err instanceof Error ? err.message : String(err));
 		});

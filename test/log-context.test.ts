@@ -165,6 +165,34 @@ describe("selectLogMessagesForContext", () => {
 		]);
 	});
 
+	it("keeps concurrent Slack threads isolated from each other", () => {
+		const messages = [
+			msg({ ts: "90.000000", text: "channel setup", userName: "amy" }),
+			msg({ ts: "100.000000", text: "thread one root", userName: "tom" }),
+			msg({ ts: "101.000000", text: "thread two root", userName: "sam" }),
+			msg({ ts: "110.000000", threadTs: "100.000000", text: "thread one user", userName: "tom" }),
+			msg({ ts: "111.000000", threadTs: "101.000000", text: "thread two user", userName: "sam" }),
+			msg({ ts: "112.000000", threadTs: "100.000000", text: "thread one bot", user: "bot", isBot: true }),
+			msg({ ts: "113.000000", threadTs: "101.000000", text: "thread two bot", user: "bot", isBot: true }),
+			msg({ ts: "120.000000", threadTs: "100.000000", text: "thread one current", userName: "tom" }),
+		];
+
+		const selected = selectLogMessagesForContext(messages, {
+			currentTs: "120.000000",
+			scope: { source: "slack", kind: "thread", rootTs: "100.000000" },
+		});
+
+		expect(selected.map((m) => m.id)).toEqual([
+			"slack:90.000000",
+			"slack-thread-boundary:100.000000",
+			"slack:100.000000",
+			"slack:110.000000",
+			"slack:112.000000",
+		]);
+		expect(selected.map((m) => m.text).join("\n")).not.toContain("thread two user");
+		expect(selected.map((m) => m.text).join("\n")).not.toContain("thread two bot");
+	});
+
 	it("treats Slack root records with threadTs equal to ts as top-level roots", () => {
 		const messages = [
 			msg({ ts: "100.000000", threadTs: "100.000000", text: "self-thread root", userName: "tom" }),
