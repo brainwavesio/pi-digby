@@ -4,7 +4,7 @@
  * Copied from pi-coding-agent (v0.65.0) — src/utils/image-resize.ts
  */
 
-import type { ImageContent } from "@mariozechner/pi-ai";
+import type { ImageContent } from "@earendil-works/pi-ai";
 import { applyExifOrientation } from "./exif-orientation.js";
 import { loadPhoton } from "./photon.js";
 

@@ -5,8 +5,8 @@
  * (channel chatter, backfilled messages) are added to the LLM context.
  */
 
-import type { UserMessage } from "@mariozechner/pi-ai";
-import type { SessionManager, SessionMessageEntry } from "@mariozechner/pi-coding-agent";
+import type { UserMessage } from "@earendil-works/pi-ai";
+import type { SessionManager, SessionMessageEntry } from "@earendil-works/pi-coding-agent";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 

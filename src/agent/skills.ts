@@ -2,7 +2,7 @@
  * SKILL.md loading — loads skills from workspace and channel directories.
  */
 
-import { formatSkillsForPrompt, loadSkillsFromDir, type Skill } from "@mariozechner/pi-coding-agent";
+import { formatSkillsForPrompt, loadSkillsFromDir, type Skill } from "@earendil-works/pi-coding-agent";
 import * as log from "../log.js";
 
 /**

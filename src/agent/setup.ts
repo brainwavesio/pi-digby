@@ -5,8 +5,8 @@
  * and manages the per-message run lifecycle.
  */
 
-import { Agent } from "@mariozechner/pi-agent-core";
-import { getModel, type ImageContent } from "@mariozechner/pi-ai";
+import { Agent } from "@earendil-works/pi-agent-core";
+import { getModel, type ImageContent } from "@earendil-works/pi-ai";
 import {
 	AgentSession,
 	AuthStorage,
@@ -17,7 +17,7 @@ import {
 	ModelRegistry,
 	type ResourceLoader,
 	SessionManager,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import { existsSync, readFileSync, statSync } from "fs";
 import { mkdir, writeFile } from "fs/promises";
 import { createRequire } from "module";
@@ -187,7 +187,7 @@ export async function createChannelRunner(opts: {
 	try {
 		const require = createRequire(import.meta.url);
 		const adapterDir = dirname(require.resolve("pi-mcp-adapter/package.json"));
-		const { createJiti } = await import("@mariozechner/jiti");
+		const { createJiti } = await import("jiti");
 		const jiti = createJiti(import.meta.url);
 		const mcpAdapter = (await jiti.import(join(adapterDir, "index.ts"), {
 			default: true,

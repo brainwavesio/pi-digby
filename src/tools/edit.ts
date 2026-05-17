@@ -1,4 +1,4 @@
-import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import * as Diff from "diff";
 import { readFileSync, writeFileSync } from "fs";
 import { Type } from "typebox";
