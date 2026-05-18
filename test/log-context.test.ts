@@ -1,6 +1,6 @@
 import { SessionManager } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import {
@@ -394,6 +394,42 @@ describe("selectLogMessagesForContext", () => {
 			expect(text.match(/persisted assistant/g)).toHaveLength(1);
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("syncs thread session context from the channel log, not a thread-local log", () => {
+		const channelDir = mkdtempSync(join(tmpdir(), "digby-log-context-"));
+		const threadSessionDir = join(channelDir, "threads", "100.000000");
+		try {
+			mkdirSync(threadSessionDir, { recursive: true });
+			writeFileSync(
+				join(channelDir, "log.jsonl"),
+				[
+					JSON.stringify(msg({ ts: "90.000000", text: "channel setup", userName: "amy" })),
+					JSON.stringify(msg({ ts: "100.000000", text: "thread root", userName: "tom" })),
+					JSON.stringify(msg({ ts: "110.000000", threadTs: "100.000000", text: "thread reply", userName: "sam" })),
+				].join("\n"),
+			);
+			writeFileSync(
+				join(threadSessionDir, "log.jsonl"),
+				JSON.stringify(msg({ ts: "105.000000", text: "thread-local decoy", userName: "ivy" })),
+			);
+
+			const sessionManager = SessionManager.open(join(threadSessionDir, "context.jsonl"), threadSessionDir);
+			const synced = syncLogToContext(sessionManager, channelDir, "120.000000", {
+				source: "slack",
+				kind: "thread",
+				rootTs: "100.000000",
+			});
+
+			expect(synced).toBe(4);
+			const text = JSON.stringify(sessionManager.buildSessionContext().messages);
+			expect(text).toContain("channel setup");
+			expect(text).toContain("thread root");
+			expect(text).toContain("thread reply");
+			expect(text).not.toContain("thread-local decoy");
+		} finally {
+			rmSync(channelDir, { recursive: true, force: true });
 		}
 	});
 });

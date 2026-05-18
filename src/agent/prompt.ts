@@ -70,7 +70,8 @@ ${workspacePath}/
 \u251c\u2500\u2500 skills/                      # Global CLI tools you create
 \u2514\u2500\u2500 ${channelId}/                # This channel
     \u251c\u2500\u2500 MEMORY.md                # Channel-specific memory
-    \u251c\u2500\u2500 log.jsonl                # Message history (no tool results)
+    \u251c\u2500\u2500 log.jsonl                # Authoritative channel message history
+    \u251c\u2500\u2500 threads/                 # Internal per-thread context.jsonl sessions
     \u251c\u2500\u2500 attachments/             # User-shared files
     \u251c\u2500\u2500 scratch/                 # Your working directory
     \u2514\u2500\u2500 skills/                  # Channel-specific tools
@@ -180,18 +181,26 @@ Maintain ${workspacePath}/SYSTEM.md to log all environment modifications:
 Update this file whenever you modify the environment. On fresh container, read it first to restore your setup.
 
 ## Log Queries (for older history)
-Format: \`{"date":"...","ts":"...","user":"...","userName":"...","text":"...","isBot":false}\`
-The log contains user messages and your final responses (not tool calls/results).
+Format: \`{"date":"...","ts":"...","threadTs":"...","user":"...","userName":"...","text":"...","isBot":false}\`
+The channel \`log.jsonl\` contains user messages and your final responses (not tool calls/results). Slack thread sessions keep separate \`context.jsonl\` files under \`threads/\`, built from filtered views of this channel log. Pay attention to \`threadTs\`: top-level channel messages usually omit it, while replies in a Slack thread include the root message timestamp as \`threadTs\`.
+
+Example:
+\`\`\`jsonl
+{"ts":"100.000000","userName":"amy","text":"channel topic","isBot":false}
+{"ts":"110.000000","threadTs":"100.000000","userName":"sam","text":"thread reply","isBot":false}
+{"ts":"111.000000","threadTs":"100.000000","user":"bot","text":"thread answer","isBot":true}
+{"ts":"120.000000","userName":"zoe","text":"new top-level message","isBot":false}
+\`\`\`
 
 \`\`\`bash
 # Recent messages
-tail -30 log.jsonl | jq -c '{date: .date[0:19], user: (.userName // .user), text}'
+tail -30 log.jsonl | jq -c '{date: .date[0:19], ts, threadTs, user: (.userName // .user), text}'
 
 # Search for specific topic
-grep -i "topic" log.jsonl | jq -c '{date: .date[0:19], user: (.userName // .user), text}'
+grep -i "topic" log.jsonl | jq -c '{date: .date[0:19], ts, threadTs, user: (.userName // .user), text}'
 
 # Messages from specific user
-grep '"userName":"mario"' log.jsonl | tail -20 | jq -c '{date: .date[0:19], text}'
+grep '"userName":"mario"' log.jsonl | tail -20 | jq -c '{date: .date[0:19], ts, threadTs, text}'
 \`\`\`
 
 ## Browser
