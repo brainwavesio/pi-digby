@@ -4,7 +4,7 @@
  * Ported from upstream agent.ts buildSystemPrompt, simplified for host-only mode.
  */
 
-import { formatSkillsForPrompt, type Skill } from "@mariozechner/pi-coding-agent";
+import { formatSkillsForPrompt, type Skill } from "@earendil-works/pi-coding-agent";
 
 export interface PromptOptions {
 	workspacePath: string;

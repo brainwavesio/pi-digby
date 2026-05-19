@@ -1,4 +1,4 @@
-import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { mkdirSync, writeFileSync } from "fs";
 import { dirname } from "path";
 import { Type } from "typebox";

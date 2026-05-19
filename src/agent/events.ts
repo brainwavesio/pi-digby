@@ -4,7 +4,7 @@
  * Ported from upstream agent.ts session.subscribe() handler.
  */
 
-import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent";
+import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import type { RunStats } from "../channel/run-stats.js";
 import { isDebugThreadingEnabled } from "../config.js";
 import * as log from "../log.js";

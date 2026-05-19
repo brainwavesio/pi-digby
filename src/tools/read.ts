@@ -1,5 +1,5 @@
-import type { AgentTool } from "@mariozechner/pi-agent-core";
-import type { ImageContent } from "@mariozechner/pi-ai";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
+import type { ImageContent } from "@earendil-works/pi-ai";
 import { readFileSync } from "fs";
 import { Type } from "typebox";
 import { formatDimensionNote, resizeImage } from "../utils/image-resize.js";
