@@ -23,6 +23,7 @@ export interface MessageTransport {
 	deleteMessage(channel: string, ts: string): Promise<void>;
 	addReaction(channel: string, ts: string, emoji: string): Promise<void>;
 	uploadFile(channel: string, filePath: string, title?: string, threadTs?: string): Promise<void>;
+	uploadContent(channel: string, content: string, filename: string, title?: string, threadTs?: string): Promise<void>;
 }
 
 /**
