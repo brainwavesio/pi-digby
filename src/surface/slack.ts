@@ -109,12 +109,27 @@ export class SlackSurface implements AgentSurface {
 				try {
 					await doUpdate(this.truncate(display, 30000));
 				} catch {
+					// Both update attempts failed — upload the full content as a file
 					try {
-						await doUpdate("_Response too long — replying as a file attachment._");
-					} catch (finalErr) {
+						const ts = new Date().getTime();
+						const filename = `response-${ts}.md`;
+						await this.client.uploadContent(
+							this.channel,
+							this.accumulatedText || display,
+							filename,
+							"Response (too long for message)",
+							this.replyThreadTs,
+						);
+						// Update the placeholder message to indicate the file was uploaded
+						try {
+							await doUpdate("_Response too long — uploaded as a file attachment above._");
+						} catch {
+							// ignore — placeholder update is best-effort
+						}
+					} catch (uploadErr) {
 						log.warn(
-							"[slack-surface] post/update error",
-							finalErr instanceof Error ? finalErr.message : String(finalErr),
+							"[slack-surface] file upload fallback failed",
+							uploadErr instanceof Error ? uploadErr.message : String(uploadErr),
 						);
 					}
 				}
