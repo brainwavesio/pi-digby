@@ -122,7 +122,7 @@ export class SlackSurface implements AgentSurface {
 						);
 						// Update the placeholder message to indicate the file was uploaded
 						try {
-							await doUpdate("_Response too long — uploaded as a file attachment above._");
+							await doUpdate("_Response too long — replying as a file attachment._");
 						} catch {
 							// ignore — placeholder update is best-effort
 						}
