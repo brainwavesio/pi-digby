@@ -68,7 +68,7 @@ RUN curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tm
 # qmd (semantic search over markdown files)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential cmake python3-dev \
-  && npm install -g @tobilu/qmd \
+  && npm install -g @tobilu/qmd@2.5.1 \
   && apt-get purge -y build-essential cmake python3-dev \
   && apt-get autoremove -y \
   && rm -rf /var/lib/apt/lists/*
