@@ -52,8 +52,10 @@ export function setupRouter(client: SlackClient, handler: RouterHandler, startup
 		// Skip DMs (handled by message event)
 		if (e.channel.startsWith("D")) return;
 
-		// Skip channels where message handler processes everything
-		if (shouldProcessAllMessages(e.channel)) return;
+		// In processAllMessages channels, the message handler covers everything —
+		// EXCEPT @mentions, which should always be processed regardless.
+		// (The message handler skips non-bot-thread messages in these channels,
+		// so an @mention in a thread we don't own would otherwise be silently dropped.)
 
 		const slackEvent: SlackEvent = {
 			type: "mention",
@@ -136,6 +138,17 @@ export function setupRouter(client: SlackClient, handler: RouterHandler, startup
 
 		// Skip old messages
 		if (e.ts < startupTs) return;
+
+		// In processAllMessages channels, skip non-threaded messages that @mention the bot —
+		// app_mention will handle those to avoid double-responses.
+		if (isAlwaysChannel && !e.thread_ts) {
+			const text = e.text || "";
+			const botMentioned = !!botUserId && text.includes(`<@${botUserId}>`);
+			if (botMentioned) {
+				handler.logMessage(slackEvent);
+				return;
+			}
+		}
 
 		if (isChannelThread) {
 			// In bot-owned threads: trigger unless another user (not bot) is mentioned
