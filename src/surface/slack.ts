@@ -112,7 +112,7 @@ export class SlackSurface implements AgentSurface {
 				} catch {
 					// Both update attempts failed — upload the full content as a file
 					try {
-						const ts = new Date().getTime();
+						const ts = Date.now();
 						const filename = `response-${ts}.md`;
 						await this.client.uploadContent(
 							this.channel,
