@@ -356,7 +356,7 @@ describe("Router", () => {
 			expect(h.handled).toHaveLength(0);
 		});
 
-		it("skips mentions in always-on channels", () => {
+		it("processes mentions in always-on channels", async () => {
 			mockShouldProcess.mockReturnValue(true);
 			mock.simulateMention({
 				text: "<@UBOT123> hello",
@@ -364,8 +364,9 @@ describe("Router", () => {
 				user: "U_USER",
 				ts: AFTER_STARTUP,
 			});
-			// message handler picks these up instead
-			expect(h.handled).toHaveLength(0);
+			// app_mention always triggers regardless of processAllMessages config
+			await vi.waitFor(() => expect(h.handled).toHaveLength(1));
+			expect(h.handled[0].type).toBe("mention");
 		});
 	});
 
@@ -444,10 +445,22 @@ describe("Router", () => {
 	// ==========================================================================
 
 	describe("mention stripping", () => {
-		it("strips @mentions from message text", async () => {
+		it("strips @mentions from message text (via app_mention)", async () => {
+			mockShouldProcess.mockReturnValue(true);
+			mock.simulateMention({
+				text: "hey <@UBOT123> do this <@UOTHER99>",
+				channel: "C_ALWAYS",
+				user: "U_USER",
+				ts: AFTER_STARTUP,
+			});
+			await vi.waitFor(() => expect(h.handled).toHaveLength(1));
+			expect(h.handled[0].text).toBe("hey  do this");
+		});
+
+		it("strips @mentions from message text (via message handler, no bot mention)", async () => {
 			mockShouldProcess.mockReturnValue(true);
 			mock.simulateMessage({
-				text: "hey <@UBOT123> do this <@UOTHER99>",
+				text: "hey <@UOTHER99> do this",
 				channel: "C_ALWAYS",
 				user: "U_USER",
 				ts: AFTER_STARTUP,
