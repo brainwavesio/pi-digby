@@ -304,13 +304,25 @@ async function handleWiki(
 		return;
 	}
 
-	// Text / markdown — render through the wiki template.
-	if (stat.size > RENDER_MAX_BYTES) {
-		return wikiNotFound(opts, slide, decodedPath, res);
-	}
+	// Text / markdown — render through the wiki template. Files larger than
+	// RENDER_MAX_BYTES are truncated to the cap and rendered with a banner;
+	// a hard 404 would hide content the user might still want to peek at.
 	let content: string;
+	let truncated = false;
 	try {
-		content = readFileSync(resolved.absPath, "utf8");
+		if (stat.size > RENDER_MAX_BYTES) {
+			const fd = await import("fs/promises").then((m) => m.open(resolved.absPath, "r"));
+			try {
+				const buf = Buffer.alloc(RENDER_MAX_BYTES);
+				await fd.read(buf, 0, RENDER_MAX_BYTES, 0);
+				content = buf.toString("utf8");
+			} finally {
+				await fd.close();
+			}
+			truncated = true;
+		} else {
+			content = readFileSync(resolved.absPath, "utf8");
+		}
 	} catch {
 		return wikiNotFound(opts, slide, decodedPath, res);
 	}
@@ -322,16 +334,20 @@ async function handleWiki(
 	};
 
 	const isMd = extname(resolved.absPath).toLowerCase() === ".md";
-	const bodyHtml = isMd
+	const rendered = isMd
 		? renderer.renderMarkdown(content, { linkExists })
 		: renderer.renderTextAsCode(content, resolved.absPath, { linkExists });
+	const banner = truncated
+		? `<div class="wiki-banner">Showing the first ${formatSize(RENDER_MAX_BYTES)} of ${formatSize(stat.size)}. Larger files aren't rendered in full.</div>`
+		: "";
+	const bodyHtml = `${banner}${rendered}`;
 
 	const labelOverrides = channelLabelOverrides(decodedPath, opts.lookupChannel);
 	const lastSeg = decodedPath.slice(decodedPath.lastIndexOf("/") + 1);
 	const html = renderShell({
 		title: lastSeg,
 		crumbs: buildCrumbs(decodedPath, labelOverrides),
-		meta: `${formatMtime(stat.mtimeMs)} · ${formatSize(stat.size)} · ${inferLang(resolved.absPath)}`,
+		meta: `${formatMtime(stat.mtimeMs)} · ${formatSize(stat.size)}${truncated ? " (truncated)" : ""} · ${inferLang(resolved.absPath)}`,
 		bodyHtml,
 	});
 

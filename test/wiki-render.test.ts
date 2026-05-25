@@ -1,5 +1,12 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { chooseFence, createRenderer, inferLang, type Renderer, wikilinkHref } from "../src/wiki/render.js";
+import {
+	chooseFence,
+	createRenderer,
+	HIGHLIGHT_MAX_BYTES,
+	inferLang,
+	type Renderer,
+	wikilinkHref,
+} from "../src/wiki/render.js";
 
 describe("wikilinkHref", () => {
 	it("appends .md when target has no extension", () => {
@@ -83,6 +90,23 @@ describe("renderer", () => {
 		// Shiki splits content into styled spans; check the values landed.
 		expect(html).toMatch(/>a</);
 		expect(html).toMatch(/>b</);
+	});
+
+	it("skips shiki above HIGHLIGHT_MAX_BYTES and emits a plain pre", () => {
+		const big = "x".repeat(HIGHLIGHT_MAX_BYTES + 100);
+		const html = r.renderTextAsCode(big, "huge.log");
+		// No shiki markup at this size.
+		expect(html).not.toContain("shiki");
+		expect(html).toContain("<pre><code>");
+		// Content survives intact.
+		expect(html).toContain("xxxx");
+	});
+
+	it("escapes HTML in the plain-pre fallback", () => {
+		const big = `<script>${"a".repeat(HIGHLIGHT_MAX_BYTES + 100)}</script>`;
+		const html = r.renderTextAsCode(big, "huge.log");
+		expect(html).not.toContain("<script>");
+		expect(html).toContain("&lt;script&gt;");
 	});
 
 	it("survives content that contains triple backticks", () => {

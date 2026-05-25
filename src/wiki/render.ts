@@ -48,8 +48,20 @@ export type RendererOptions = {
 
 export type Renderer = {
 	renderMarkdown(content: string, opts?: RendererOptions): string;
+	/**
+	 * Render a text/code file. Above `HIGHLIGHT_MAX_BYTES` the content is
+	 * served as a plain pre-block (no shiki) to avoid burning seconds of
+	 * CPU on a 5 MB log file.
+	 */
 	renderTextAsCode(content: string, filename: string, opts?: RendererOptions): string;
 };
+
+/**
+ * Above this size, syntax-highlighting is skipped — shiki tokenises every
+ * character and a 5 MB JSON would take seconds and megabytes of allocation.
+ * The plain-pre fallback still renders in the wiki template.
+ */
+export const HIGHLIGHT_MAX_BYTES = 256 * 1024; // 256 KB
 
 /**
  * Build a renderer with shiki highlighting attached. Returns a promise
@@ -69,12 +81,21 @@ export async function createRenderer(): Promise<Renderer> {
 			return md.render(content, { wikiLinkExists: opts?.linkExists });
 		},
 		renderTextAsCode(content, filename, opts) {
+			// Skip shiki for large files — render as escaped plain pre.
+			if (Buffer.byteLength(content, "utf8") > HIGHLIGHT_MAX_BYTES) {
+				return `<pre><code>${escapePreCode(content)}</code></pre>`;
+			}
 			const lang = inferLang(filename);
 			const fence = chooseFence(content);
 			const body = `${fence}${lang}\n${content}\n${fence}\n`;
 			return md.render(body, { wikiLinkExists: opts?.linkExists });
 		},
 	};
+}
+
+/** Minimal HTML-escape for content going into a `<pre><code>` block. */
+function escapePreCode(s: string): string {
+	return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 /** Extension → shiki language id. Falls back to `text`. */
