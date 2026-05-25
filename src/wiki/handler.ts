@@ -1,0 +1,439 @@
+/**
+ * Wiki HTTP handler — dispatches /w/*, /auth/slack/*, /auth/logout, /public/*.
+ *
+ * One handler, registered against the HttpServer via three prefix
+ * registrations. Owns auth middleware, ACL, rendering, and asset serving.
+ */
+import { createReadStream, existsSync, readFileSync, statSync } from "fs";
+import type { IncomingMessage, ServerResponse } from "http";
+import { extname, join } from "path";
+import { fileURLToPath } from "url";
+import * as log from "../log.js";
+import { detectSupportedImageMimeTypeFromFile } from "../utils/mime.js";
+import { resolveSafe } from "./acl.js";
+import {
+	authorizeUrl,
+	clearCookieHeader,
+	exchangeCode,
+	mintCookieHeader,
+	readCookie,
+	signState,
+	verifyCookie,
+	verifyState,
+} from "./auth.js";
+import { listDirectory, renderListingBody } from "./listing.js";
+import { createRenderer, inferLang, type Renderer } from "./render.js";
+import { buildCrumbs, renderLoginPage, renderMissingBody, renderShell } from "./template.js";
+
+const RENDER_MAX_BYTES = 5 * 1024 * 1024; // 5 MB cap on rendered text
+const RAW_MAX_BYTES = 25 * 1024 * 1024; // 25 MB cap on raw bytes (images)
+
+// Public CSS lives next to this file at compile time. Resolve once.
+const PUBLIC_DIR = fileURLToPath(new URL("./public/", import.meta.url));
+
+export type WikiHandlerOptions = {
+	workingDir: string;
+	cookieSecret: string;
+	slack: {
+		clientId: string;
+		clientSecret: string;
+		teamId: string;
+		redirectUri: string;
+	};
+	/** Resolve a Slack channel id to its name (no leading #). */
+	lookupChannel?: (channelId: string) => string | undefined;
+};
+
+export async function createWikiHandler(
+	opts: WikiHandlerOptions,
+): Promise<(req: IncomingMessage, res: ServerResponse) => Promise<void>> {
+	const renderer = await createRenderer();
+
+	return async (req, res) => {
+		const url = new URL(req.url ?? "/", "http://localhost");
+		const path = url.pathname;
+
+		// Asset serving — no auth.
+		if (path.startsWith("/public/")) {
+			return servePublic(path, res);
+		}
+		if (path === "/auth/slack/start") {
+			return handleAuthStart(opts, url, res);
+		}
+		if (path === "/auth/slack/callback") {
+			return handleAuthCallback(opts, url, req, res);
+		}
+		if (path === "/auth/logout") {
+			return handleLogout(res);
+		}
+		if (path === "/w" || path === "/w/" || path.startsWith("/w/")) {
+			return handleWiki(opts, renderer, url, req, res);
+		}
+
+		res.writeHead(404, { "Content-Type": "text/plain" });
+		res.end("Not found");
+	};
+}
+
+// ---------------------------------------------------------------------------
+// /public/*
+// ---------------------------------------------------------------------------
+
+function servePublic(urlPath: string, res: ServerResponse): void {
+	const rel = urlPath.slice("/public/".length);
+	// Disallow traversal & dotfiles in /public.
+	if (rel.split("/").some((s) => s === ".." || s === "" || s.startsWith("."))) {
+		notFound(res);
+		return;
+	}
+	const abs = join(PUBLIC_DIR, rel);
+	if (!abs.startsWith(PUBLIC_DIR) || !existsSync(abs)) {
+		notFound(res);
+		return;
+	}
+	const ct = contentTypeFor(extname(abs).toLowerCase());
+	res.writeHead(200, {
+		"Content-Type": ct,
+		"Cache-Control": "public, max-age=3600",
+		"X-Robots-Tag": "noindex, nofollow",
+	});
+	createReadStream(abs).pipe(res);
+}
+
+function contentTypeFor(ext: string): string {
+	switch (ext) {
+		case ".css":
+			return "text/css; charset=utf-8";
+		case ".js":
+			return "application/javascript; charset=utf-8";
+		case ".svg":
+			return "image/svg+xml";
+		case ".png":
+			return "image/png";
+		case ".jpg":
+		case ".jpeg":
+			return "image/jpeg";
+		case ".woff":
+			return "font/woff";
+		case ".woff2":
+			return "font/woff2";
+		default:
+			return "application/octet-stream";
+	}
+}
+
+// ---------------------------------------------------------------------------
+// /auth/*
+// ---------------------------------------------------------------------------
+
+function handleAuthStart(opts: WikiHandlerOptions, url: URL, res: ServerResponse): void {
+	const returnTo = sanitizeReturnTo(url.searchParams.get("r"));
+	const state = signState(returnTo, opts.cookieSecret);
+	const href = authorizeUrl({
+		clientId: opts.slack.clientId,
+		redirectUri: opts.slack.redirectUri,
+		state,
+	});
+	log.info(`[wiki] auth-start → ${returnTo}`);
+	res.writeHead(302, {
+		Location: href,
+		"X-Robots-Tag": "noindex, nofollow",
+	});
+	res.end();
+}
+
+async function handleAuthCallback(
+	opts: WikiHandlerOptions,
+	url: URL,
+	_req: IncomingMessage,
+	res: ServerResponse,
+): Promise<void> {
+	const code = url.searchParams.get("code");
+	const state = url.searchParams.get("state");
+	if (!code || !state) {
+		log.warn("[wiki] auth-callback missing code/state");
+		return loginPage(opts, "/w/", res, 400);
+	}
+	const verified = verifyState(state, opts.cookieSecret);
+	if (!verified.ok) {
+		log.warn("[wiki] auth-callback bad state");
+		return loginPage(opts, "/w/", res, 400);
+	}
+	const identity = await exchangeCode(code, {
+		clientId: opts.slack.clientId,
+		clientSecret: opts.slack.clientSecret,
+		redirectUri: opts.slack.redirectUri,
+	});
+	if (!identity) {
+		log.warn("[wiki] auth-callback exchange failed");
+		return loginPage(opts, verified.returnTo, res, 401);
+	}
+	if (identity.teamId !== opts.slack.teamId) {
+		log.warn(`[wiki] auth-callback wrong team: ${identity.teamId} != ${opts.slack.teamId}`);
+		return loginPage(opts, verified.returnTo, res, 403);
+	}
+	log.info(`[wiki] auth-callback ok user=${identity.userId} → ${verified.returnTo}`);
+	res.writeHead(302, {
+		Location: verified.returnTo,
+		"Set-Cookie": mintCookieHeader(identity.userId, identity.teamId, opts.cookieSecret),
+		"X-Robots-Tag": "noindex, nofollow",
+	});
+	res.end();
+}
+
+function handleLogout(res: ServerResponse): void {
+	log.info("[wiki] logout");
+	res.writeHead(302, {
+		Location: "/w/",
+		"Set-Cookie": clearCookieHeader(),
+		"X-Robots-Tag": "noindex, nofollow",
+	});
+	res.end();
+}
+
+function loginPage(opts: WikiHandlerOptions, returnTo: string, res: ServerResponse, status = 200): void {
+	const state = signState(sanitizeReturnTo(returnTo), opts.cookieSecret);
+	const href = authorizeUrl({
+		clientId: opts.slack.clientId,
+		redirectUri: opts.slack.redirectUri,
+		state,
+	});
+	const html = renderLoginPage(href);
+	res.writeHead(status, {
+		"Content-Type": "text/html; charset=utf-8",
+		"Cache-Control": "no-store",
+		"X-Robots-Tag": "noindex, nofollow",
+	});
+	res.end(html);
+}
+
+// ---------------------------------------------------------------------------
+// /w/*
+// ---------------------------------------------------------------------------
+
+async function handleWiki(
+	opts: WikiHandlerOptions,
+	renderer: Renderer,
+	url: URL,
+	req: IncomingMessage,
+	res: ServerResponse,
+): Promise<void> {
+	// Auth gate. Existing valid cookies are *never* demoted.
+	const cookieVal = readCookie(req.headers.cookie);
+	const auth = cookieVal ? verifyCookie(cookieVal, opts.cookieSecret) : null;
+	const ok = auth?.ok === true;
+
+	const requestedPath = url.pathname.startsWith("/w/") ? url.pathname.slice("/w/".length) : "";
+	const decodedPath = safeDecode(requestedPath);
+
+	log.info(`[wiki] GET ${url.pathname} user=${ok ? auth!.payload.sub : "-"} status=${ok ? "auth" : "redirect"}`);
+
+	if (!ok) {
+		const returnTo = url.pathname + (url.search || "");
+		const startUrl = `/auth/slack/start?r=${encodeURIComponent(sanitizeReturnTo(returnTo))}`;
+		const headers: Record<string, string> = {
+			Location: startUrl,
+			"X-Robots-Tag": "noindex, nofollow",
+		};
+		if (cookieVal) headers["Set-Cookie"] = clearCookieHeader();
+		res.writeHead(302, headers);
+		res.end();
+		return;
+	}
+
+	// Slide the cookie forward.
+	const slide = mintCookieHeader(auth!.payload.sub, auth!.payload.team, opts.cookieSecret);
+
+	if (decodedPath === null) {
+		return wikiNotFound(opts, slide, requestedPath, res);
+	}
+
+	const resolved = resolveSafe(opts.workingDir, decodedPath);
+	if (!resolved.ok) {
+		return wikiNotFound(opts, slide, decodedPath, res);
+	}
+
+	let stat: ReturnType<typeof statSync>;
+	try {
+		stat = statSync(resolved.absPath);
+	} catch {
+		return wikiNotFound(opts, slide, decodedPath, res);
+	}
+
+	if (stat.isDirectory()) {
+		// Canonicalise: directories always have a trailing slash.
+		if (!url.pathname.endsWith("/")) {
+			res.writeHead(302, { Location: `${url.pathname}/`, "Set-Cookie": slide });
+			res.end();
+			return;
+		}
+		return serveDirectory(opts, renderer, resolved.absPath, decodedPath, slide, res);
+	}
+
+	if (!stat.isFile()) {
+		return wikiNotFound(opts, slide, decodedPath, res);
+	}
+
+	// Images → raw bytes with correct mime.
+	const imageMime = await detectImageMimeSafely(resolved.absPath);
+	if (imageMime) {
+		if (stat.size > RAW_MAX_BYTES) return wikiNotFound(opts, slide, decodedPath, res);
+		res.writeHead(200, {
+			"Content-Type": imageMime,
+			"Content-Length": stat.size,
+			"Cache-Control": "private, max-age=60",
+			"Set-Cookie": slide,
+			"X-Robots-Tag": "noindex, nofollow",
+		});
+		createReadStream(resolved.absPath).pipe(res);
+		return;
+	}
+
+	// Text / markdown — render through the wiki template.
+	if (stat.size > RENDER_MAX_BYTES) {
+		return wikiNotFound(opts, slide, decodedPath, res);
+	}
+	let content: string;
+	try {
+		content = readFileSync(resolved.absPath, "utf8");
+	} catch {
+		return wikiNotFound(opts, slide, decodedPath, res);
+	}
+
+	const linkExists = (urlPath: string) => {
+		const rel = urlPath.startsWith("/w/") ? urlPath.slice("/w/".length) : urlPath;
+		const r = resolveSafe(opts.workingDir, safeDecode(rel) ?? "");
+		return r.ok && existsSync(r.absPath);
+	};
+
+	const isMd = extname(resolved.absPath).toLowerCase() === ".md";
+	const bodyHtml = isMd
+		? renderer.renderMarkdown(content, { linkExists })
+		: renderer.renderTextAsCode(content, resolved.absPath, { linkExists });
+
+	const labelOverrides = channelLabelOverrides(decodedPath, opts.lookupChannel);
+	const lastSeg = decodedPath.slice(decodedPath.lastIndexOf("/") + 1);
+	const html = renderShell({
+		title: lastSeg,
+		crumbs: buildCrumbs(decodedPath, labelOverrides),
+		meta: `${formatMtime(stat.mtimeMs)} · ${formatSize(stat.size)} · ${inferLang(resolved.absPath)}`,
+		bodyHtml,
+	});
+
+	res.writeHead(200, {
+		"Content-Type": "text/html; charset=utf-8",
+		"Cache-Control": "private, max-age=60",
+		"Set-Cookie": slide,
+		"X-Robots-Tag": "noindex, nofollow",
+	});
+	res.end(html);
+}
+
+function serveDirectory(
+	opts: WikiHandlerOptions,
+	_renderer: Renderer,
+	absDir: string,
+	decodedPath: string,
+	slideCookie: string,
+	res: ServerResponse,
+): void {
+	const urlDir = decodedPath.length === 0 ? "" : `${decodedPath.replace(/\/+$/, "")}/`;
+	const entries = listDirectory(absDir, urlDir, opts.lookupChannel);
+	const labelOverrides = channelLabelOverrides(decodedPath, opts.lookupChannel);
+	const lastSeg = decodedPath.replace(/\/+$/, "").split("/").filter(Boolean).pop() ?? "index";
+	const title = labelOverrides?.[lastSeg] ?? (decodedPath === "" ? "digby" : lastSeg);
+	const html = renderShell({
+		title,
+		crumbs: buildCrumbs(decodedPath, labelOverrides),
+		meta: `${entries.length} entries`,
+		bodyHtml: renderListingBody(entries),
+	});
+	res.writeHead(200, {
+		"Content-Type": "text/html; charset=utf-8",
+		"Cache-Control": "private, max-age=60",
+		"Set-Cookie": slideCookie,
+		"X-Robots-Tag": "noindex, nofollow",
+	});
+	res.end(html);
+}
+
+function wikiNotFound(opts: WikiHandlerOptions, slideCookie: string, decodedPath: string, res: ServerResponse): void {
+	const labelOverrides = channelLabelOverrides(decodedPath, opts.lookupChannel);
+	const html = renderShell({
+		title: "Not found",
+		crumbs: buildCrumbs(decodedPath, labelOverrides),
+		bodyHtml: renderMissingBody(`/w/${decodedPath}`),
+	});
+	res.writeHead(404, {
+		"Content-Type": "text/html; charset=utf-8",
+		"Cache-Control": "no-store",
+		"Set-Cookie": slideCookie,
+		"X-Robots-Tag": "noindex, nofollow",
+	});
+	res.end(html);
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+async function detectImageMimeSafely(absPath: string): Promise<string | null> {
+	try {
+		return await detectSupportedImageMimeTypeFromFile(absPath);
+	} catch {
+		return null;
+	}
+}
+
+/** Decode the URL path, returning null on invalid escape sequences. */
+function safeDecode(s: string): string | null {
+	try {
+		return decodeURIComponent(s);
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Build crumb-label overrides for channel IDs in the current path. Crumbs
+ * render via `buildCrumbs(path, overrides)` keyed on segment name.
+ */
+function channelLabelOverrides(
+	decodedPath: string,
+	lookup?: (id: string) => string | undefined,
+): Record<string, string> | undefined {
+	if (!lookup) return undefined;
+	const out: Record<string, string> = {};
+	for (const seg of decodedPath.split("/")) {
+		if (/^[CDG][A-Z0-9]{6,}$/.test(seg)) {
+			const name = lookup(seg);
+			if (name) out[seg] = `#${name}`;
+		}
+	}
+	return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/**
+ * Restrict return-to URLs to same-origin paths starting with /w/ or / —
+ * blocks open-redirect attacks via the ?r= parameter.
+ */
+function sanitizeReturnTo(r: string | null): string {
+	if (!r) return "/w/";
+	if (!r.startsWith("/") || r.startsWith("//")) return "/w/";
+	return r;
+}
+
+function formatMtime(ms: number): string {
+	return new Date(ms).toISOString().slice(0, 16).replace("T", " ");
+}
+
+function formatSize(bytes: number): string {
+	if (bytes < 1024) return `${bytes} B`;
+	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+	return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function notFound(res: ServerResponse): void {
+	res.writeHead(404, { "Content-Type": "text/plain" });
+	res.end("Not found");
+}

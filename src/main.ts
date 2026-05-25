@@ -26,6 +26,13 @@ import type { BotEvent } from "./types.js";
 const MOM_SLACK_APP_TOKEN = process.env.MOM_SLACK_APP_TOKEN;
 const MOM_SLACK_BOT_TOKEN = process.env.MOM_SLACK_BOT_TOKEN;
 
+// Wiki (optional — when any of these are missing we just don't enable /w/*)
+const DIGBY_COOKIE_SECRET = process.env.DIGBY_COOKIE_SECRET;
+const DIGBY_SLACK_CLIENT_ID = process.env.DIGBY_SLACK_CLIENT_ID;
+const DIGBY_SLACK_CLIENT_SECRET = process.env.DIGBY_SLACK_CLIENT_SECRET;
+const DIGBY_SLACK_TEAM_ID = process.env.DIGBY_SLACK_TEAM_ID;
+const DIGBY_WIKI_BASE_URL = process.env.DIGBY_WIKI_BASE_URL ?? "https://digby.brain-waves.io";
+
 function parseArgs(): { workingDir: string } {
 	const args = process.argv.slice(2);
 	let workingDir: string | undefined;
@@ -358,10 +365,34 @@ log.info(`Starting pi-digby v2 (workingDir: ${workingDir})`);
 
 // Start HTTP server (health checks + webhooks)
 const httpServer = new HttpServer();
-httpServer.start();
 
 // Start Slack client
 await client.start();
+
+// Enable the wiki (/w/*, /auth/*, /public/*) when fully configured.
+if (DIGBY_COOKIE_SECRET && DIGBY_SLACK_CLIENT_ID && DIGBY_SLACK_CLIENT_SECRET && DIGBY_SLACK_TEAM_ID) {
+	const { createWikiHandler } = await import("./wiki/handler.js");
+	const wikiHandler = await createWikiHandler({
+		workingDir,
+		cookieSecret: DIGBY_COOKIE_SECRET,
+		slack: {
+			clientId: DIGBY_SLACK_CLIENT_ID,
+			clientSecret: DIGBY_SLACK_CLIENT_SECRET,
+			teamId: DIGBY_SLACK_TEAM_ID,
+			redirectUri: `${DIGBY_WIKI_BASE_URL}/auth/slack/callback`,
+		},
+		lookupChannel: (id) => client.getChannel(id)?.name,
+	});
+	// Order matters — these are checked in registration order.
+	httpServer.registerGetPrefix("/public/", wikiHandler);
+	httpServer.registerGetPrefix("/auth/", wikiHandler);
+	httpServer.registerGetPrefix("/w", wikiHandler);
+	log.info("Wiki enabled at /w/");
+} else {
+	log.info("Wiki disabled — DIGBY_COOKIE_SECRET / DIGBY_SLACK_* env not set");
+}
+
+httpServer.start();
 
 // Backfill channels with existing logs
 await backfillAllChannels();
