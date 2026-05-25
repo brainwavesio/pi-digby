@@ -93,6 +93,23 @@ describe("resolveSafe", () => {
 		}
 	});
 
+	it("denies symlink that resolves inside root but to a denied segment", () => {
+		// Exact scenario flagged in adversarial review: a symlink like
+		// memory/notes -> ../.pi means every URL segment ('memory', 'notes',
+		// 'mcp.json') is allowed and the realpath stays under root, yet the
+		// resolved path lives under a denied segment.
+		const r = setup();
+		symlinkSync(join(r, ".pi"), join(r, "memory", "notes"));
+		expect(resolveSafe(r, "memory/notes/mcp.json").ok).toBe(false);
+		expect(resolveSafe(r, "memory/notes").ok).toBe(false);
+	});
+
+	it("denies symlink that resolves to the credentials dir", () => {
+		const r = setup();
+		symlinkSync(join(r, "credentials"), join(r, "memory", "stash"));
+		expect(resolveSafe(r, "memory/stash/secret.txt").ok).toBe(false);
+	});
+
 	it("tolerates trailing/leading slashes", () => {
 		const r = setup();
 		expect(resolveSafe(r, "/memory/tom.md").ok).toBe(true);

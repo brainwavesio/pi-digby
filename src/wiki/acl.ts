@@ -64,6 +64,18 @@ export function resolveSafe(workingDir: string, urlPath: string): ResolveResult 
 	}
 
 	const relPath = absReal === rootReal ? "" : absReal.slice(rootReal.length + 1);
+
+	// Re-run the deny rules on the post-realpath segments. Without this, a
+	// symlink like `memory/notes -> ../.pi` would pass — every URL segment
+	// is allowed, the resolved path is still under root, but the resolved
+	// path points at denied content. Check segments of the *relative* path
+	// only (sep-split), so absolute root traversal can't sneak through.
+	if (relPath.length > 0) {
+		for (const seg of relPath.split(sep)) {
+			if (isDeniedSegment(seg)) return { ok: false };
+		}
+	}
+
 	return { ok: true, absPath: absReal, relPath };
 }
 
