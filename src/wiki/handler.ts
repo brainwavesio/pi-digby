@@ -414,12 +414,22 @@ function channelLabelOverrides(
 }
 
 /**
- * Restrict return-to URLs to same-origin paths starting with /w/ or / —
- * blocks open-redirect attacks via the ?r= parameter.
+ * Restrict return-to URLs to same-origin paths under /w/ — blocks
+ * open-redirect attacks via the ?r= parameter.
+ *
+ * Rules:
+ *  - Must start with "/w/" or be exactly "/w" (constrains the wiki to
+ *    itself; no redirecting users to /auth/logout, /health, etc).
+ *  - Reject "//foo" (protocol-relative) and backslash (some browsers
+ *    treat "\" as "/" in URLs).
+ *  - Reject ASCII control characters (0x00-0x1f, 0x7f). Unicode
+ *    filenames are fine — the URL is decoded once and the path is
+ *    later split into segments, each checked by resolveSafe.
  */
 function sanitizeReturnTo(r: string | null): string {
 	if (!r) return "/w/";
-	if (!r.startsWith("/") || r.startsWith("//")) return "/w/";
+	if (r.includes("\\") || /[\x00-\x1f\x7f]/.test(r)) return "/w/";
+	if (r !== "/w" && !r.startsWith("/w/")) return "/w/";
 	return r;
 }
 
