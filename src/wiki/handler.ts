@@ -128,11 +128,12 @@ function contentTypeFor(ext: string): string {
 
 function handleAuthStart(opts: WikiHandlerOptions, url: URL, res: ServerResponse): void {
 	const returnTo = sanitizeReturnTo(url.searchParams.get("r"));
-	const state = signState(returnTo, opts.cookieSecret);
+	const { state, nonce } = signStateWithNonce(returnTo, opts.cookieSecret);
 	const href = authorizeUrl({
 		clientId: opts.slack.clientId,
 		redirectUri: opts.slack.redirectUri,
 		state,
+		nonce,
 	});
 	log.info(`[wiki] auth-start → ${returnTo}`);
 	res.writeHead(302, {
@@ -140,6 +141,18 @@ function handleAuthStart(opts: WikiHandlerOptions, url: URL, res: ServerResponse
 		"X-Robots-Tag": "noindex, nofollow",
 	});
 	res.end();
+}
+
+/**
+ * Sign the OAuth state and return both the encoded token and its embedded
+ * nonce. The nonce is sent in the authorize URL and later compared against
+ * id_token.nonce in exchangeCode.
+ */
+function signStateWithNonce(returnTo: string, secret: string): { state: string; nonce: string } {
+	const state = signState(returnTo, secret);
+	const verified = verifyState(state, secret);
+	if (!verified.ok) throw new Error("just-signed state failed to verify");
+	return { state, nonce: verified.nonce };
 }
 
 async function handleAuthCallback(
@@ -163,6 +176,7 @@ async function handleAuthCallback(
 		clientId: opts.slack.clientId,
 		clientSecret: opts.slack.clientSecret,
 		redirectUri: opts.slack.redirectUri,
+		expectedNonce: verified.nonce,
 	});
 	if (!identity) {
 		log.warn("[wiki] auth-callback exchange failed");
@@ -192,11 +206,12 @@ function handleLogout(res: ServerResponse): void {
 }
 
 function loginPage(opts: WikiHandlerOptions, returnTo: string, res: ServerResponse, status = 200): void {
-	const state = signState(sanitizeReturnTo(returnTo), opts.cookieSecret);
+	const { state, nonce } = signStateWithNonce(sanitizeReturnTo(returnTo), opts.cookieSecret);
 	const href = authorizeUrl({
 		clientId: opts.slack.clientId,
 		redirectUri: opts.slack.redirectUri,
 		state,
+		nonce,
 	});
 	const html = renderLoginPage(href);
 	res.writeHead(status, {

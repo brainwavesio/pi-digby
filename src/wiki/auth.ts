@@ -5,13 +5,15 @@
  *   - Cookie:  { sub, team, exp }  — 30d sliding session
  *   - State:   { r, n, exp }       — short-lived OAuth return-to + nonce
  *
- * No external JWT library — payloads are our own format, not RFC JWT.
+ * No external JWT library — our payloads are our own format, not RFC JWT.
  *
- * Slack's id_token (received over TLS from the token endpoint) is decoded
- * without signature verification. That's defensible because the only path
- * by which we obtain it is a direct HTTPS POST to slack.com, with our
- * client_secret in the body; an attacker can't substitute their own token
- * mid-flight without breaking TLS to slack.com.
+ * Slack's id_token signature is intentionally NOT verified against the JWKS:
+ * we obtain it via a direct HTTPS POST to slack.com authenticated with our
+ * client_secret, so an attacker can't substitute a token mid-flight without
+ * breaking TLS to slack.com. We still enforce the OIDC claim checks
+ * (`iss`, `aud`, `exp`, `nonce`) inside validateIdToken — those guard
+ * against token replay, audience confusion, and stale tokens even given
+ * the TLS trust assumption.
  */
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 
@@ -22,7 +24,14 @@ export const SLACK_AUTHORIZE_URL = "https://slack.com/openid/connect/authorize";
 export const SLACK_TOKEN_URL = "https://slack.com/api/openid.connect.token";
 
 export type CookiePayload = { sub: string; team: string; exp: number };
+/**
+ * State payload — `n` doubles as both CSRF nonce and the OIDC nonce we send
+ * in the authorize URL. Slack echoes it back in the id_token's `nonce`
+ * claim; we then verify the echoed value matches what we signed in `state`.
+ */
 export type StatePayload = { r: string; n: string; exp: number };
+
+export const SLACK_ISSUER = "https://slack.com";
 
 // ---------------------------------------------------------------------------
 // Encoding helpers
@@ -127,7 +136,7 @@ export function verifyState(
 	state: string,
 	secret: string,
 	now = Date.now(),
-): { ok: true; returnTo: string } | { ok: false } {
+): { ok: true; returnTo: string; nonce: string } | { ok: false } {
 	const parts = state.split(".");
 	if (parts.length !== 2) return { ok: false };
 	const [body, sig] = parts;
@@ -138,24 +147,25 @@ export function verifyState(
 	} catch {
 		return { ok: false };
 	}
-	if (!parsed || typeof parsed.r !== "string" || typeof parsed.exp !== "number") {
+	if (!parsed || typeof parsed.r !== "string" || typeof parsed.n !== "string" || typeof parsed.exp !== "number") {
 		return { ok: false };
 	}
 	if (parsed.exp < now) return { ok: false };
-	return { ok: true, returnTo: parsed.r };
+	return { ok: true, returnTo: parsed.r, nonce: parsed.n };
 }
 
 // ---------------------------------------------------------------------------
 // Slack OAuth helpers
 // ---------------------------------------------------------------------------
 
-export function authorizeUrl(opts: { clientId: string; redirectUri: string; state: string }): string {
+export function authorizeUrl(opts: { clientId: string; redirectUri: string; state: string; nonce: string }): string {
 	const params = new URLSearchParams({
 		response_type: "code",
 		scope: "openid profile email",
 		client_id: opts.clientId,
 		redirect_uri: opts.redirectUri,
 		state: opts.state,
+		nonce: opts.nonce,
 	});
 	return `${SLACK_AUTHORIZE_URL}?${params.toString()}`;
 }
@@ -168,8 +178,15 @@ export type SlackIdentity = { userId: string; teamId: string };
  */
 export async function exchangeCode(
 	code: string,
-	opts: { clientId: string; clientSecret: string; redirectUri: string },
+	opts: {
+		clientId: string;
+		clientSecret: string;
+		redirectUri: string;
+		/** Nonce we sent in the authorize URL — must match id_token.nonce. */
+		expectedNonce: string;
+	},
 	fetchFn: typeof fetch = fetch,
+	now = Date.now(),
 ): Promise<SlackIdentity | null> {
 	const body = new URLSearchParams({
 		code,
@@ -196,15 +213,32 @@ export async function exchangeCode(
 		return null;
 	}
 	if (!json.ok || !json.id_token) return null;
-	return decodeIdToken(json.id_token);
+	return validateIdToken(json.id_token, {
+		audience: opts.clientId,
+		expectedNonce: opts.expectedNonce,
+		now,
+	});
 }
 
 /**
- * Decode the unsigned payload of a Slack id_token. We trust this because we
- * just fetched it directly from slack.com over TLS using our client_secret —
- * see file-level comment.
+ * Validate a Slack id_token against the OIDC claims we care about, and
+ * extract the user/team identity. Returns null on any failure.
+ *
+ * Claims checked:
+ *  - `iss` must equal "https://slack.com"
+ *  - `aud` must equal our client_id (string or string[])
+ *  - `exp` must be in the future (with a 60s clock-skew allowance)
+ *  - `nonce` must equal what we sent in the authorize URL
+ *  - `sub` must be a string (the Slack user id)
+ *  - team_id must be present (namespaced `https://slack.com/team_id`,
+ *    falling back to `team.id`)
+ *
+ * Signature/JWKS is intentionally NOT verified — see file-level comment.
  */
-export function decodeIdToken(idToken: string): SlackIdentity | null {
+export function validateIdToken(
+	idToken: string,
+	opts: { audience: string; expectedNonce: string; now?: number; skewSeconds?: number },
+): SlackIdentity | null {
 	const parts = idToken.split(".");
 	if (parts.length !== 3) return null;
 	let claims: Record<string, unknown>;
@@ -213,8 +247,22 @@ export function decodeIdToken(idToken: string): SlackIdentity | null {
 	} catch {
 		return null;
 	}
+
+	if (claims.iss !== SLACK_ISSUER) return null;
+
+	const aud = claims.aud;
+	const audOk = Array.isArray(aud) ? aud.includes(opts.audience) : aud === opts.audience;
+	if (!audOk) return null;
+
+	const exp = typeof claims.exp === "number" ? claims.exp : null;
+	if (exp === null) return null;
+	const nowSec = Math.floor((opts.now ?? Date.now()) / 1000);
+	const skew = opts.skewSeconds ?? 60;
+	if (exp + skew < nowSec) return null;
+
+	if (claims.nonce !== opts.expectedNonce) return null;
+
 	const sub = claims.sub;
-	// Slack puts team_id in a namespaced claim. Accept either.
 	const team =
 		(claims["https://slack.com/team_id"] as string | undefined) ??
 		((claims.team as { id?: string } | undefined)?.id as string | undefined);

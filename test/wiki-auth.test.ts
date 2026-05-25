@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
 	COOKIE_TTL_MS,
-	decodeIdToken,
 	readCookie,
 	signCookie,
 	signState,
+	SLACK_ISSUER,
+	validateIdToken,
 	verifyCookie,
 	verifyState,
 } from "../src/wiki/auth.js";
@@ -67,11 +68,14 @@ describe("readCookie", () => {
 });
 
 describe("state sign/verify", () => {
-	it("roundtrips the return-to path", () => {
+	it("roundtrips the return-to path and exposes the embedded nonce", () => {
 		const state = signState("/w/memory/tom.md", SECRET);
 		const res = verifyState(state, SECRET);
 		expect(res.ok).toBe(true);
-		if (res.ok) expect(res.returnTo).toBe("/w/memory/tom.md");
+		if (res.ok) {
+			expect(res.returnTo).toBe("/w/memory/tom.md");
+			expect(res.nonce).toMatch(/^[0-9a-f]{32}$/);
+		}
 	});
 
 	it("rejects an expired state", () => {
@@ -87,34 +91,86 @@ describe("state sign/verify", () => {
 	});
 });
 
-describe("decodeIdToken", () => {
+describe("validateIdToken (OIDC claim checks)", () => {
+	const CLIENT_ID = "12345.67890";
+	const NONCE = "abcdef0123";
+
 	function makeIdToken(claims: Record<string, unknown>): string {
 		const enc = (o: object) =>
 			Buffer.from(JSON.stringify(o)).toString("base64").replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
 		return `${enc({ alg: "none" })}.${enc(claims)}.sig-not-checked`;
 	}
 
-	it("extracts sub + team_id from a Slack id_token", () => {
-		const id = makeIdToken({
-			sub: "U123",
-			"https://slack.com/team_id": "T456",
-			email: "tom@example.com",
+	const okClaims = (over: Record<string, unknown> = {}) => ({
+		iss: SLACK_ISSUER,
+		aud: CLIENT_ID,
+		exp: Math.floor(Date.now() / 1000) + 600,
+		nonce: NONCE,
+		sub: "U123",
+		"https://slack.com/team_id": "T456",
+		...over,
+	});
+
+	it("accepts a well-formed id_token", () => {
+		const id = makeIdToken(okClaims());
+		expect(validateIdToken(id, { audience: CLIENT_ID, expectedNonce: NONCE })).toEqual({
+			userId: "U123",
+			teamId: "T456",
 		});
-		expect(decodeIdToken(id)).toEqual({ userId: "U123", teamId: "T456" });
 	});
 
-	it("falls back to team.id", () => {
-		const id = makeIdToken({ sub: "U1", team: { id: "T1" } });
-		expect(decodeIdToken(id)).toEqual({ userId: "U1", teamId: "T1" });
+	it("accepts aud as array containing the audience", () => {
+		const id = makeIdToken(okClaims({ aud: ["other", CLIENT_ID] }));
+		expect(validateIdToken(id, { audience: CLIENT_ID, expectedNonce: NONCE })).not.toBeNull();
 	});
 
-	it("returns null when team_id is missing", () => {
-		const id = makeIdToken({ sub: "U1" });
-		expect(decodeIdToken(id)).toBeNull();
+	it("falls back to team.id when team_id namespace claim is missing", () => {
+		const id = makeIdToken(
+			okClaims({ "https://slack.com/team_id": undefined, team: { id: "T999" } }),
+		);
+		expect(validateIdToken(id, { audience: CLIENT_ID, expectedNonce: NONCE })).toEqual({
+			userId: "U123",
+			teamId: "T999",
+		});
 	});
 
-	it("returns null on malformed token", () => {
-		expect(decodeIdToken("not.a.token.really")).toBeNull();
-		expect(decodeIdToken("oneonly")).toBeNull();
+	it("rejects a wrong issuer", () => {
+		const id = makeIdToken(okClaims({ iss: "https://evil.example" }));
+		expect(validateIdToken(id, { audience: CLIENT_ID, expectedNonce: NONCE })).toBeNull();
+	});
+
+	it("rejects a wrong audience", () => {
+		const id = makeIdToken(okClaims({ aud: "different-client-id" }));
+		expect(validateIdToken(id, { audience: CLIENT_ID, expectedNonce: NONCE })).toBeNull();
+	});
+
+	it("rejects an expired token (past skew)", () => {
+		const id = makeIdToken(okClaims({ exp: Math.floor(Date.now() / 1000) - 3600 }));
+		expect(validateIdToken(id, { audience: CLIENT_ID, expectedNonce: NONCE })).toBeNull();
+	});
+
+	it("rejects a wrong nonce (replay)", () => {
+		const id = makeIdToken(okClaims({ nonce: "different-nonce" }));
+		expect(validateIdToken(id, { audience: CLIENT_ID, expectedNonce: NONCE })).toBeNull();
+	});
+
+	it("rejects when sub or team_id is missing", () => {
+		expect(
+			validateIdToken(makeIdToken(okClaims({ sub: undefined })), {
+				audience: CLIENT_ID,
+				expectedNonce: NONCE,
+			}),
+		).toBeNull();
+		expect(
+			validateIdToken(
+				makeIdToken(okClaims({ "https://slack.com/team_id": undefined, team: undefined })),
+				{ audience: CLIENT_ID, expectedNonce: NONCE },
+			),
+		).toBeNull();
+	});
+
+	it("rejects malformed tokens", () => {
+		expect(validateIdToken("not.a.token.really", { audience: CLIENT_ID, expectedNonce: NONCE })).toBeNull();
+		expect(validateIdToken("oneonly", { audience: CLIENT_ID, expectedNonce: NONCE })).toBeNull();
 	});
 });
