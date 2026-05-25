@@ -5,8 +5,8 @@
  * and manages the per-message run lifecycle.
  */
 
-import { Agent } from "@earendil-works/pi-agent-core";
-import { getModel, type ImageContent } from "@earendil-works/pi-ai";
+import { type AfterToolCallContext, type AfterToolCallResult, Agent } from "@earendil-works/pi-agent-core";
+import { getModel, type ImageContent, type TextContent } from "@earendil-works/pi-ai";
 import {
 	AgentSession,
 	AuthStorage,
@@ -37,6 +37,7 @@ import { loadMemory } from "../persistence/memory.js";
 import type { SlackChannel, SlackUser } from "../slack/types.js";
 import type { AgentSurface } from "../surface/types.js";
 import { createTools } from "../tools/index.js";
+import { DEFAULT_MAX_BYTES, formatSize, truncateBytesHead } from "../tools/truncate.js";
 import type { BotEvent } from "../types.js";
 import { resizeImage } from "../utils/image-resize.js";
 import { detectSupportedImageMimeTypeFromFile } from "../utils/mime.js";
@@ -83,6 +84,46 @@ function getMtime(path: string): number {
 function truncate(text: string, maxLen: number): string {
 	if (text.length <= maxLen) return text;
 	return `${text.substring(0, maxLen - 3)}...`;
+}
+
+/**
+ * Blanket tool-result byte cap.
+ *
+ * Local bash/read already self-truncate at `DEFAULT_MAX_BYTES` (50KB), but MCP
+ * tools (PostHog, Linear, Exa, etc.) flow through `pi-mcp-adapter` which has
+ * no truncation. A single large MCP response gets persisted verbatim to
+ * `context.jsonl` and replayed on every subsequent turn, so one fat result can
+ * inflate the prompt past Bedrock's tolerable payload size (~5MB observed) and
+ * brick the channel with opaque "Service unavailable" errors.
+ *
+ * This hook is a safety net: cap each tool result's combined text content at
+ * 50KB with a clear notice. Idempotent against existing self-truncation
+ * (no-op when content already fits). Preserves image content untouched.
+ */
+async function capToolResultBytes({
+	result,
+	toolCall,
+}: AfterToolCallContext): Promise<AfterToolCallResult | undefined> {
+	let textBytes = 0;
+	for (const c of result.content) {
+		if (c.type === "text") textBytes += Buffer.byteLength(c.text, "utf-8");
+	}
+	if (textBytes <= DEFAULT_MAX_BYTES) return undefined;
+
+	const textParts: string[] = [];
+	const passthrough: ImageContent[] = [];
+	for (const c of result.content) {
+		if (c.type === "text") textParts.push(c.text);
+		else passthrough.push(c);
+	}
+
+	const joined = textParts.join("\n");
+	const clipped = truncateBytesHead(joined, DEFAULT_MAX_BYTES);
+	const toolName = (toolCall as { name?: string }).name ?? "tool";
+	const notice = `\n\n[output truncated — kept first ${formatSize(Buffer.byteLength(clipped.text, "utf-8"))} of ${formatSize(clipped.totalBytes)} from \`${toolName}\`. Narrow your query/args to see more.]`;
+
+	const newContent: (TextContent | ImageContent)[] = [{ type: "text", text: clipped.text + notice }, ...passthrough];
+	return { content: newContent };
 }
 
 // ---------------------------------------------------------------------------
@@ -156,6 +197,7 @@ export async function createChannelRunner(opts: {
 		},
 		convertToLlm,
 		getApiKey: async () => getBedrockApiKey(),
+		afterToolCall: capToolResultBytes,
 	});
 
 	// -----------------------------------------------------------------------

@@ -253,6 +253,32 @@ function truncateStringToBytesFromEnd(str: string, maxBytes: number): string {
 }
 
 /**
+ * UTF-8-safe head clip to a byte limit. Returns the original string when it
+ * already fits. Unlike `truncateHead`, this never returns empty content — it
+ * always keeps as many bytes as fit, even if that means a partial last line.
+ *
+ * Used for the agent's `afterToolCall` blanket cap, which must yield *some*
+ * content to the model rather than dropping the whole result.
+ */
+export function truncateBytesHead(
+	str: string,
+	maxBytes: number,
+): { text: string; truncated: boolean; totalBytes: number } {
+	const buf = Buffer.from(str, "utf-8");
+	if (buf.length <= maxBytes) {
+		return { text: str, truncated: false, totalBytes: buf.length };
+	}
+
+	// Find a valid UTF-8 boundary at/before maxBytes (start of next character).
+	let end = maxBytes;
+	while (end > 0 && (buf[end] & 0xc0) === 0x80) {
+		end--;
+	}
+
+	return { text: buf.slice(0, end).toString("utf-8"), truncated: true, totalBytes: buf.length };
+}
+
+/**
  * Truncate a single line to max characters, adding [truncated] suffix.
  * Used for grep match lines.
  */
