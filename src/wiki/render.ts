@@ -57,38 +57,59 @@ export type Renderer = {
 };
 
 /**
- * Above this size, syntax-highlighting is skipped — shiki tokenises every
- * character and a 5 MB JSON would take seconds and megabytes of allocation.
- * The plain-pre fallback still renders in the wiki template.
+ * Above this content size, syntax-highlighting is skipped — shiki tokenises
+ * every character and a 5 MB document of code would take seconds and tens
+ * of MB of allocation. Applied uniformly to both `.md` files (whose fenced
+ * code blocks otherwise go through shiki on every byte) and standalone
+ * text/code files. The plain-pre fallback still renders in the wiki
+ * template.
  */
 export const HIGHLIGHT_MAX_BYTES = 256 * 1024; // 256 KB
 
 /**
  * Build a renderer with shiki highlighting attached. Returns a promise
  * because shiki initialises asynchronously (downloads/loads themes).
+ *
+ * Two markdown-it instances are wired up:
+ *   - mdHighlighted: with @shikijs/markdown-it
+ *   - mdPlain:       no shiki; fenced code becomes a plain <pre>
+ *
+ * Both share the same `[[wikilink]]` rule. The renderer picks based on
+ * total content byte length — anything over HIGHLIGHT_MAX_BYTES skips
+ * shiki regardless of file type, so a 4 MB `.md` with one giant fence
+ * can't pin the event loop.
  */
 export async function createRenderer(): Promise<Renderer> {
-	const md = MarkdownIt({ html: false, linkify: true, breaks: false });
-	md.use(
+	const mdHighlighted = MarkdownIt({ html: false, linkify: true, breaks: false });
+	mdHighlighted.use(
 		await Shiki({
 			themes: { light: "github-light", dark: "github-dark" },
 		}),
 	);
-	installWikilinkRule(md);
+	installWikilinkRule(mdHighlighted);
+
+	const mdPlain = MarkdownIt({ html: false, linkify: true, breaks: false });
+	installWikilinkRule(mdPlain);
+
+	function pick(content: string): MarkdownIt {
+		return Buffer.byteLength(content, "utf8") > HIGHLIGHT_MAX_BYTES ? mdPlain : mdHighlighted;
+	}
 
 	return {
 		renderMarkdown(content, opts) {
-			return md.render(content, { wikiLinkExists: opts?.linkExists });
+			return pick(content).render(content, { wikiLinkExists: opts?.linkExists });
 		},
 		renderTextAsCode(content, filename, opts) {
-			// Skip shiki for large files — render as escaped plain pre.
+			// Above the cap, skip the markdown pipeline entirely — feeding a
+			// 5 MB log through markdown-it just to render a single <pre> is
+			// pointless allocation. Use a hand-built escaped pre.
 			if (Buffer.byteLength(content, "utf8") > HIGHLIGHT_MAX_BYTES) {
 				return `<pre><code>${escapePreCode(content)}</code></pre>`;
 			}
 			const lang = inferLang(filename);
 			const fence = chooseFence(content);
 			const body = `${fence}${lang}\n${content}\n${fence}\n`;
-			return md.render(body, { wikiLinkExists: opts?.linkExists });
+			return mdHighlighted.render(body, { wikiLinkExists: opts?.linkExists });
 		},
 	};
 }

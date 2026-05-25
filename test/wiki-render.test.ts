@@ -102,6 +102,25 @@ describe("renderer", () => {
 		expect(html).toContain("xxxx");
 	});
 
+	it("skips shiki on .md files above HIGHLIGHT_MAX_BYTES too", () => {
+		// Fenced code blocks in a large markdown would otherwise stream
+		// through shiki and tokenise every character. Verify the gate
+		// applies uniformly.
+		const code = "x".repeat(HIGHLIGHT_MAX_BYTES + 100);
+		const md = `# big\n\n\`\`\`python\n${code}\n\`\`\`\n`;
+		const html = r.renderMarkdown(md);
+		expect(html).not.toContain("shiki");
+		// Markdown still renders (heading, plain pre).
+		expect(html).toContain("<h1>");
+		expect(html).toContain("<pre>");
+	});
+
+	it("still highlights .md files under the cap", () => {
+		const md = "# small\n\n```ts\nconst x: number = 1;\n```\n";
+		const html = r.renderMarkdown(md);
+		expect(html).toContain("shiki");
+	});
+
 	it("escapes HTML in the plain-pre fallback", () => {
 		const big = `<script>${"a".repeat(HIGHLIGHT_MAX_BYTES + 100)}</script>`;
 		const html = r.renderTextAsCode(big, "huge.log");
