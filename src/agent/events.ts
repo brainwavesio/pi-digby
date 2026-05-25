@@ -208,13 +208,11 @@ export function createEventHandler(
 				log.info(`[${channelId}] Compaction aborted`);
 			}
 		} else if (event.type === "auto_retry_start") {
-			const e = event as any;
-			log.warn(`[${channelId}] Retrying (${e.attempt}/${e.maxAttempts}): ${e.errorMessage}`);
-			ctx.emitProgress(`*Retrying (${e.attempt}/${e.maxAttempts})...*`);
+			log.warn(`[${channelId}] Retrying (${event.attempt}/${event.maxAttempts}): ${event.errorMessage}`);
+			ctx.emitProgress(`*Retrying (${event.attempt}/${event.maxAttempts})...*`);
 		} else if (event.type === "auto_retry_end") {
-			const e = event as any;
-			if (!e.success) {
-				log.warn(`[${channelId}] Retries exhausted: ${e.finalError}`);
+			if (!event.success) {
+				log.warn(`[${channelId}] Retries exhausted: ${event.finalError}`);
 				ctx.emitProgress("*Retries exhausted*");
 			}
 		}
