@@ -51,6 +51,19 @@ import { loadSkills } from "./skills.js";
 
 const model = getModel("amazon-bedrock", "us.anthropic.claude-sonnet-4-6");
 
+// Sanity check: pi-coding-agent's threshold compaction needs a positive
+// contextWindow to decide when to compact. If this ever returns 0 (model
+// metadata missing or renamed upstream) we lose proactive compaction and
+// risk recurring the D0AADDL2LCW incident. Fail loud at boot.
+if (!model.contextWindow || model.contextWindow <= 0) {
+	log.warn(
+		`Model ${model.provider}/${model.id} has no contextWindow (${model.contextWindow}). ` +
+			"Threshold compaction will not trigger reliably — verify pi-ai model registry.",
+	);
+} else {
+	log.info(`Model ${model.provider}/${model.id} contextWindow=${model.contextWindow}`);
+}
+
 // ---------------------------------------------------------------------------
 // Bedrock auth
 // ---------------------------------------------------------------------------
@@ -558,6 +571,34 @@ export async function getOrCreateRunner(opts: {
 	const runner = await createChannelRunner(opts);
 	channelRunners.set(opts.runnerId, runner);
 	return runner;
+}
+
+/**
+ * Evict a cached runner after a run completes.
+ *
+ * This aligns us with pi-coding-agent's session-boundary model: each "run" is
+ * effectively one session lifetime, and the next event rebuilds from disk.
+ * Eviction bounds in-memory `SessionManager.fileEntries` growth and ensures
+ * external trims to `context.jsonl` actually take effect on the next trigger.
+ *
+ * Safe to call after `runner.run()` resolves — entries are persisted
+ * synchronously via `appendFileSync`, so disk has everything at this point.
+ *
+ * Concurrent runners across different runnerIds are unaffected: each channel
+ * / Slack thread / Linear issue has its own runnerId and serializes via its
+ * own lane.
+ */
+export async function evictRunner(runnerId: string): Promise<void> {
+	const runner = channelRunners.get(runnerId);
+	if (!runner) return;
+	channelRunners.delete(runnerId);
+	try {
+		await runner.shutdown();
+	} catch (err) {
+		log.warn(
+			`[${runnerId}] Runner shutdown error during eviction: ${err instanceof Error ? err.message : String(err)}`,
+		);
+	}
 }
 
 function defaultLogContextScope(event: BotEvent): LogContextScope {

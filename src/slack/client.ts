@@ -146,7 +146,13 @@ export class SlackClient {
 		await withRetry(() => this.web.files.uploadV2(args as any), "uploadFile");
 	}
 
-	async uploadContent(channel: string, content: string, filename: string, title?: string, threadTs?: string): Promise<void> {
+	async uploadContent(
+		channel: string,
+		content: string,
+		filename: string,
+		title?: string,
+		threadTs?: string,
+	): Promise<void> {
 		const buf = Buffer.from(content, "utf-8");
 		const args = threadTs
 			? { channel_id: channel, file: buf, filename, title: title ?? filename, thread_ts: threadTs }

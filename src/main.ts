@@ -2,7 +2,7 @@
 
 import { mkdirSync, writeFileSync } from "fs";
 import { dirname, join, resolve } from "path";
-import { type ChannelRunner, getOrCreateRunner, shutdownAllRunners } from "./agent/setup.js";
+import { type ChannelRunner, evictRunner, getOrCreateRunner, shutdownAllRunners } from "./agent/setup.js";
 import { createQueuedFollowUpTrigger, FollowUpQueue } from "./channel/follow-up-queue.js";
 import { ChannelQueue } from "./channel/queue.js";
 import { createRunStats } from "./channel/run-stats.js";
@@ -253,6 +253,12 @@ async function runSlackEvent(
 		lane.activeRunner = undefined;
 		lane.stopRequested = false;
 		lane.stopMessageTs = undefined;
+
+		// Evict runner so the next trigger rebuilds from disk. Bounds in-memory
+		// SessionManager growth and ensures external edits to context.jsonl take
+		// effect on the next run. Queued follow-ups will simply re-create the
+		// runner when they're dequeued.
+		await evictRunner(conversation.runnerId);
 	}
 }
 
@@ -474,6 +480,9 @@ if (LINEAR_API_KEY && LINEAR_WEBHOOK_SECRET) {
 			lane.activeRunner = undefined;
 			lane.stopRequested = false;
 			lane.stopMessageTs = undefined;
+
+			// Evict — see runSlackEvent for rationale.
+			await evictRunner(runnerId);
 		}
 	}
 
