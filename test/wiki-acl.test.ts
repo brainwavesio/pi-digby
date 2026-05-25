@@ -98,4 +98,71 @@ describe("resolveSafe", () => {
 		expect(resolveSafe(r, "/memory/tom.md").ok).toBe(true);
 		expect(resolveSafe(r, "memory/tom.md/").ok).toBe(true);
 	});
+
+	it("rejects ASCII control chars in any segment", () => {
+		const r = setup();
+		expect(resolveSafe(r, "memory/\x00tom.md").ok).toBe(false);
+		expect(resolveSafe(r, "memory/tom\x1f.md").ok).toBe(false);
+		expect(resolveSafe(r, "memory/\x7ftom").ok).toBe(false);
+	});
+});
+
+describe("resolveSafe — URL decoding rules (decode-once expectations)", () => {
+	// The handler decodes the URL path exactly once via decodeURIComponent
+	// before calling resolveSafe. These tests exercise the resulting segment
+	// strings to verify each escape variant maps to a rejected path.
+	let root: string | undefined;
+	afterEach(() => {
+		if (root) rmSync(root, { recursive: true, force: true });
+		root = undefined;
+	});
+	function setup(): string {
+		root = mkdtempSync(join(tmpdir(), "digby-wiki-acl-decode-"));
+		mkdirSync(join(root, "memory"));
+		writeFileSync(join(root, "memory", "tom.md"), "# tom");
+		return root;
+	}
+
+	it("rejects single-decoded %2e%2e traversal", () => {
+		const r = setup();
+		// After decodeURIComponent: "memory/../etc"
+		const decoded = decodeURIComponent("memory/%2e%2e/etc");
+		expect(decoded).toBe("memory/../etc");
+		expect(resolveSafe(r, decoded).ok).toBe(false);
+	});
+
+	it("rejects single-decoded %2F as additional segment boundary", () => {
+		const r = setup();
+		// After decode, %2F becomes "/", expanding into new segments.
+		const decoded = decodeURIComponent("memory%2F..%2Fmemory%2Ftom.md");
+		// Decodes to "memory/../memory/tom.md" — has a ".." segment.
+		expect(decoded).toBe("memory/../memory/tom.md");
+		expect(resolveSafe(r, decoded).ok).toBe(false);
+	});
+
+	it("treats double-encoded traversal as literal filename (safe)", () => {
+		const r = setup();
+		// %252e%252e → "%2e%2e" after one decode — literal, not "..".
+		const decoded = decodeURIComponent("%252e%252e");
+		expect(decoded).toBe("%2e%2e");
+		// Literal name doesn't exist on disk — symlink-escape guard catches it,
+		// and even if it existed it wouldn't traverse anywhere.
+		const result = resolveSafe(r, decoded);
+		// The result is ok=true because "%2e%2e" is just a filename, but
+		// the file doesn't exist so the handler 404s downstream.
+		expect(result.ok).toBe(true);
+	});
+
+	it("rejects literal backslash segments containing control chars", () => {
+		const r = setup();
+		expect(resolveSafe(r, "memory/\x00").ok).toBe(false);
+	});
+
+	it("rejects null bytes that survived decoding", () => {
+		const r = setup();
+		// %00 decodes to NUL — already covered by isDeniedSegment.
+		const decoded = decodeURIComponent("memory/%00tom.md");
+		expect(decoded).toBe("memory/\x00tom.md");
+		expect(resolveSafe(r, decoded).ok).toBe(false);
+	});
 });

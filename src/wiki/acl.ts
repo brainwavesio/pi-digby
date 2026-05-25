@@ -23,6 +23,9 @@ export function isDeniedSegment(name: string): boolean {
 	if (name.length === 0) return true;
 	if (name.startsWith(".")) return true;
 	if (DENY_SEGMENTS.has(name)) return true;
+	// Reject ASCII control characters (0x00-0x1f, 0x7f) and embedded NUL,
+	// which can confuse downstream filesystem APIs. Unicode is fine.
+	if (/[\x00-\x1f\x7f]/.test(name)) return true;
 	return false;
 }
 
