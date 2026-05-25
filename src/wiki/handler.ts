@@ -7,6 +7,7 @@
 import { createReadStream, existsSync, readFileSync, statSync } from "fs";
 import type { IncomingMessage, ServerResponse } from "http";
 import { extname, join } from "path";
+import { pipeline } from "stream/promises";
 import { fileURLToPath } from "url";
 import * as log from "../log.js";
 import { detectSupportedImageMimeTypeFromFile } from "../utils/mime.js";
@@ -79,7 +80,7 @@ export async function createWikiHandler(
 // /public/*
 // ---------------------------------------------------------------------------
 
-function servePublic(urlPath: string, res: ServerResponse): void {
+async function servePublic(urlPath: string, res: ServerResponse): Promise<void> {
 	const rel = urlPath.slice("/public/".length);
 	// Disallow traversal & dotfiles in /public.
 	if (rel.split("/").some((s) => s === ".." || s === "" || s.startsWith("."))) {
@@ -97,7 +98,26 @@ function servePublic(urlPath: string, res: ServerResponse): void {
 		"Cache-Control": "public, max-age=3600",
 		"X-Robots-Tag": "noindex, nofollow",
 	});
-	createReadStream(abs).pipe(res);
+	await streamFile(abs, res);
+}
+
+/**
+ * Stream a file into the response, swallowing source-stream errors so a
+ * TOCTOU race or EFS hiccup doesn't crash the whole bot via an unhandled
+ * 'error' event on the readable. Uses stream/promises.pipeline so both
+ * sides get cleaned up.
+ *
+ * `res.writeHead` MUST have been called before — once we're streaming,
+ * there's no way to signal a 5xx, so on error we just close the partial
+ * response and log.
+ */
+async function streamFile(abs: string, res: ServerResponse): Promise<void> {
+	try {
+		await pipeline(createReadStream(abs), res);
+	} catch (err) {
+		log.warn(`[wiki] stream error on ${abs}`, err instanceof Error ? err.message : String(err));
+		if (!res.writableEnded) res.end();
+	}
 }
 
 function contentTypeFor(ext: string): string {
@@ -300,7 +320,7 @@ async function handleWiki(
 			"Set-Cookie": slide,
 			"X-Robots-Tag": "noindex, nofollow",
 		});
-		createReadStream(resolved.absPath).pipe(res);
+		await streamFile(resolved.absPath, res);
 		return;
 	}
 

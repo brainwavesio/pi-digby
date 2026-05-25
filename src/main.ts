@@ -26,7 +26,14 @@ import type { BotEvent } from "./types.js";
 const MOM_SLACK_APP_TOKEN = process.env.MOM_SLACK_APP_TOKEN;
 const MOM_SLACK_BOT_TOKEN = process.env.MOM_SLACK_BOT_TOKEN;
 
-// Wiki (optional — when any of these are missing we just don't enable /w/*)
+// Wiki — the four DIGBY_* env vars below are required in production: ECS
+// wires them in via the `Secrets:` block (deploy/cloudformation.yml), so a
+// missing key in pi-digby/env will fail the task at boot with a clear
+// ResourceInitializationError — which is what we want. We'd rather fail
+// loud at deploy than ship a bot whose /w/* silently 302s into nothing.
+//
+// The env-var gate below exists only for local dev, where these aren't set
+// and the bot should run with the wiki disabled.
 const DIGBY_COOKIE_SECRET = process.env.DIGBY_COOKIE_SECRET;
 const DIGBY_SLACK_CLIENT_ID = process.env.DIGBY_SLACK_CLIENT_ID;
 const DIGBY_SLACK_CLIENT_SECRET = process.env.DIGBY_SLACK_CLIENT_SECRET;
