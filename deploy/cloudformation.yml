@@ -518,6 +518,16 @@ Resources:
               ValueFrom: !Sub "${Secret}:LINEAR_WEBHOOK_SECRET::"
             - Name: CLOUDFLARE_TUNNEL_TOKEN
               ValueFrom: !Sub "${Secret}:CLOUDFLARE_TUNNEL_TOKEN::"
+            # Wiki (/w/*) — sign-in-with-Slack OAuth + signed session cookie.
+            # All four must be set together; missing any disables /w/*.
+            - Name: DIGBY_COOKIE_SECRET
+              ValueFrom: !Sub "${Secret}:DIGBY_COOKIE_SECRET::"
+            - Name: DIGBY_SLACK_CLIENT_ID
+              ValueFrom: !Sub "${Secret}:DIGBY_SLACK_CLIENT_ID::"
+            - Name: DIGBY_SLACK_CLIENT_SECRET
+              ValueFrom: !Sub "${Secret}:DIGBY_SLACK_CLIENT_SECRET::"
+            - Name: DIGBY_SLACK_TEAM_ID
+              ValueFrom: !Sub "${Secret}:DIGBY_SLACK_TEAM_ID::"
           HealthCheck:
             Command:
               - CMD-SHELL

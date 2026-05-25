@@ -7,30 +7,33 @@
 		"digby": "dist/main.js"
 	},
 	"scripts": {
-		"build": "tsgo -p tsconfig.json",
+		"build": "tsgo -p tsconfig.json && mkdir -p dist/wiki && cp -R src/wiki/public dist/wiki/public",
 		"check": "biome check --write --error-on-warnings src/ && tsgo --noEmit",
 		"test": "vitest run",
 		"clean": "rm -rf dist",
 		"prepare": "husky"
 	},
 	"dependencies": {
-		"@linear/sdk": "^81.0.0",
 		"@earendil-works/pi-agent-core": "^0.75.5",
 		"@earendil-works/pi-ai": "^0.75.5",
 		"@earendil-works/pi-coding-agent": "^0.75.5",
-		"jiti": "^2.7.0",
+		"@linear/sdk": "^81.0.0",
+		"@shikijs/markdown-it": "^4.1.0",
 		"@silvia-odwyer/photon-node": "^0.3.4",
 		"@slack/socket-mode": "^2.0.0",
 		"@slack/web-api": "^7.0.0",
 		"croner": "^9.1.0",
 		"diff": "^8.0.2",
 		"file-type": "^21.1.1",
+		"jiti": "^2.7.0",
+		"markdown-it": "^14.2.0",
 		"pi-mcp-adapter": "^2.6.1",
 		"quick-lru": "^7.3.0",
 		"typebox": "^1.1.0"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.3.5",
+		"@types/markdown-it": "^14.1.2",
 		"@types/node": "^22.10.5",
 		"@typescript/native-preview": "7.0.0-dev.20260120.1",
 		"husky": "^9.1.7",

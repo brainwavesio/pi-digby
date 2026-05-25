@@ -1,0 +1,283 @@
+/* =====================================================================
+   Digby wiki — branded read surface.
+
+   Tokens derived from brainwavesio/design/colors_and_type.css (warm
+   palette, semantic ramps). Caslon Ionic / Figtree substituted with
+   Besley from Google Fonts; Inter + Azeret Mono shipped as-is.
+   ===================================================================== */
+
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Besley:ital,wght@0,400;0,500;0,600;1,400&family=Azeret+Mono:wght@400;500&display=swap");
+
+:root {
+	--bg:          oklch(98.5% 0.008 85);  /* warm-50, paper */
+	--bg-card:     oklch(99%   0.005 85);
+	--bg-chip:     oklch(92%   0.018 85);  /* warm-200 */
+	--border:      oklch(86%   0.024 82);  /* warm-300 */
+	--fg:          oklch(18%   0.016 55);  /* warm-900, ink */
+	--fg-muted:    oklch(38%   0.028 65);  /* warm-700 */
+	--fg-meta:     oklch(60%   0.035 74);  /* warm-500 */
+	--brand:       oklch(80.5% 0.196 160);
+	--accent:      oklch(52%   0.17  295); /* action violet */
+	--broken:      #c44;
+
+	--font-body:    "Inter", ui-sans-serif, system-ui, sans-serif;
+	--font-display: "Besley", "EB Garamond", Georgia, serif;
+	--font-mono:    "Azeret Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--bg:       oklch(12% 0.012 50);
+		--bg-card:  oklch(18% 0.012 60);
+		--bg-chip:  oklch(28% 0.022 60);
+		--border:   oklch(38% 0.028 65);
+		--fg:       oklch(96% 0.012 85);
+		--fg-muted: oklch(86% 0.024 82);
+		--fg-meta:  oklch(75% 0.032 78);
+	}
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+	margin: 0;
+	background: var(--bg);
+	color: var(--fg);
+	font-family: var(--font-body);
+	font-size: 16px;
+	line-height: 1.55;
+	-webkit-font-smoothing: antialiased;
+	text-rendering: optimizeLegibility;
+}
+
+.wiki-shell {
+	max-width: 64rem;
+	margin: 0 auto;
+	padding: 32px 24px 96px;
+}
+
+.wiki-crumb {
+	font-family: var(--font-mono);
+	font-size: 12px;
+	letter-spacing: 0.03em;
+	text-transform: uppercase;
+	color: var(--fg-meta);
+	margin-bottom: 32px;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	align-items: center;
+}
+.wiki-crumb a {
+	color: var(--fg-meta);
+	text-decoration: none;
+}
+.wiki-crumb a:hover { color: var(--fg); }
+.wiki-crumb .sep::before { content: "▸"; opacity: 0.6; margin: 0 2px; }
+
+.wiki-title {
+	font-family: var(--font-display);
+	font-weight: 500;
+	font-size: 40px;
+	line-height: 1.15;
+	letter-spacing: -0.01em;
+	margin: 0 0 24px;
+}
+
+.wiki-meta {
+	font-family: var(--font-mono);
+	font-size: 12px;
+	color: var(--fg-meta);
+	margin-bottom: 32px;
+}
+
+.wiki-content {
+	font-size: 17px;
+	line-height: 1.6;
+}
+.wiki-content h1, .wiki-content h2, .wiki-content h3, .wiki-content h4 {
+	font-family: var(--font-display);
+	font-weight: 500;
+	letter-spacing: -0.01em;
+	line-height: 1.25;
+	margin: 2.2em 0 0.7em;
+}
+.wiki-content h1 { font-size: 34px; }
+.wiki-content h2 { font-size: 26px; }
+.wiki-content h3 { font-size: 21px; }
+.wiki-content h4 { font-size: 18px; font-family: var(--font-body); font-weight: 600; }
+.wiki-content p { margin: 0 0 1em; }
+.wiki-content ul, .wiki-content ol { margin: 0 0 1em; padding-left: 1.6em; }
+.wiki-content li { margin: 0.2em 0; }
+.wiki-content blockquote {
+	margin: 1em 0;
+	padding: 0.1em 1em;
+	border-left: 3px solid var(--brand);
+	color: var(--fg-muted);
+	font-style: italic;
+}
+.wiki-content hr {
+	border: 0;
+	border-top: 1px solid var(--border);
+	margin: 2em 0;
+}
+
+.wiki-content a {
+	color: var(--fg);
+	text-decoration: underline;
+	text-underline-offset: 2px;
+	text-decoration-thickness: 1px;
+	text-decoration-color: var(--accent);
+}
+.wiki-content a:hover { opacity: 0.7; }
+
+.wiki-content a.wiki-broken {
+	color: var(--broken);
+	text-decoration-style: dotted;
+	text-decoration-color: var(--broken);
+}
+
+/* Inline code */
+.wiki-content code {
+	font-family: var(--font-mono);
+	font-size: 0.92em;
+	background: var(--bg-chip);
+	padding: 0.1em 0.3em;
+	border-radius: 4px;
+}
+.wiki-content pre {
+	margin: 1em 0;
+	padding: 16px 18px;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	overflow: auto;
+	font-size: 13px;
+	line-height: 1.55;
+	background: var(--bg-card);
+}
+.wiki-content pre code {
+	background: transparent;
+	padding: 0;
+	border-radius: 0;
+	font-size: inherit;
+}
+.wiki-content img {
+	max-width: 100%;
+	height: auto;
+	border-radius: 6px;
+	border: 1px solid var(--border);
+}
+.wiki-content table {
+	border-collapse: collapse;
+	margin: 1em 0;
+	font-size: 14px;
+}
+.wiki-content th, .wiki-content td {
+	border: 1px solid var(--border);
+	padding: 6px 10px;
+	text-align: left;
+}
+.wiki-content th { background: var(--bg-chip); font-weight: 600; }
+
+/* Shiki dual theme — swap CSS vars on dark. */
+@media (prefers-color-scheme: dark) {
+	.shiki, .shiki span {
+		color: var(--shiki-dark) !important;
+		background-color: var(--shiki-dark-bg) !important;
+	}
+}
+
+/* Directory listing */
+.wiki-listing { width: 100%; border-collapse: collapse; font-size: 14px; }
+.wiki-listing th {
+	font-family: var(--font-mono);
+	font-size: 11px;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	color: var(--fg-meta);
+	text-align: left;
+	font-weight: 500;
+	padding: 8px 12px;
+	border-bottom: 1px solid var(--border);
+}
+.wiki-listing td {
+	padding: 10px 12px;
+	border-bottom: 1px solid var(--border);
+}
+.wiki-listing tr:hover td { background: var(--bg-chip); }
+.wiki-listing a { color: var(--fg); text-decoration: none; }
+.wiki-listing a:hover { text-decoration: underline; }
+.wiki-listing .dir { font-weight: 500; }
+.wiki-listing .dir::after { content: "/"; opacity: 0.6; }
+.wiki-listing .meta {
+	font-family: var(--font-mono);
+	font-size: 11px;
+	color: var(--fg-meta);
+	white-space: nowrap;
+}
+
+/* Footer */
+.wiki-foot {
+	margin-top: 64px;
+	padding-top: 16px;
+	border-top: 1px solid var(--border);
+	font-family: var(--font-mono);
+	font-size: 11px;
+	color: var(--fg-meta);
+	display: flex;
+	justify-content: space-between;
+	gap: 16px;
+}
+.wiki-foot a { color: var(--fg-meta); text-decoration: none; }
+.wiki-foot a:hover { color: var(--fg); }
+
+/* Truncation banner */
+.wiki-banner {
+	margin: 0 0 24px;
+	padding: 10px 14px;
+	background: var(--bg-chip);
+	border-left: 3px solid var(--accent);
+	border-radius: 4px;
+	font-family: var(--font-mono);
+	font-size: 12px;
+	color: var(--fg-muted);
+}
+
+/* Missing page */
+.wiki-missing {
+	font-family: var(--font-display);
+	font-style: italic;
+	color: var(--fg-meta);
+	font-size: 22px;
+	margin: 64px 0;
+}
+
+/* Login page */
+.wiki-login {
+	min-height: 100vh;
+	display: grid;
+	place-items: center;
+	text-align: center;
+	padding: 24px;
+}
+.wiki-login h1 {
+	font-family: var(--font-display);
+	font-weight: 500;
+	font-size: 44px;
+	margin: 0 0 8px;
+}
+.wiki-login p {
+	color: var(--fg-meta);
+	max-width: 32rem;
+	margin: 0 auto 24px;
+}
+.wiki-login a.btn {
+	display: inline-block;
+	padding: 12px 20px;
+	border: 1px solid var(--fg);
+	border-radius: 6px;
+	color: var(--fg);
+	text-decoration: none;
+	font-weight: 500;
+}
+.wiki-login a.btn:hover { background: var(--fg); color: var(--bg); }

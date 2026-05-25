@@ -56,6 +56,10 @@ Push to `main` triggers `.github/workflows/deploy.yml` → builds Docker image �
 | `MOM_SLACK_BOT_TOKEN` | Slack bot OAuth token |
 | `BROWSER_USE_API_KEY` | browser-use CLI (cloud mode) |
 | `EXA_API_KEY` | Exa search MCP server |
+| `DIGBY_COOKIE_SECRET` | HMAC secret for the wiki's session cookie + OAuth state. Generate with `openssl rand -hex 32`. |
+| `DIGBY_SLACK_CLIENT_ID` | Slack OAuth client id (sign-in-with-Slack on the existing pi-digby app) |
+| `DIGBY_SLACK_CLIENT_SECRET` | Slack OAuth client secret |
+| `DIGBY_SLACK_TEAM_ID` | Slack workspace id (`T…`) — wiki ACL: only members of this team can sign in |
 
 > **Note:** Bedrock auth uses the ECS task role (`pi-digby-task`), not IAM user credentials.
 
