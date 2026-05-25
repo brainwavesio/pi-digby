@@ -534,14 +534,24 @@ export async function createChannelRunner(opts: {
 		},
 
 		async shutdown(): Promise<void> {
-			// Emit session_shutdown so extensions (MCP adapter) can close connections
-			const runner = session.extensionRunner;
-			if (runner) {
+			// Emit session_shutdown so extensions (MCP adapter) can close connections.
+			const extensionRunner = session.extensionRunner;
+			if (extensionRunner) {
 				try {
-					await runner.emit({ type: "session_shutdown", reason: "quit" });
+					await extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
 				} catch (err) {
 					log.warn(`[${channelId}] Extension shutdown error: ${err instanceof Error ? err.message : String(err)}`);
 				}
+			}
+
+			// Dispose the AgentSession: invalidates extension contexts, disconnects
+			// agent listeners, and runs session-resource cleanup. Without this,
+			// per-run evictions leak Agent event subscriptions and extension state
+			// over time. See `AgentSession.dispose()` in pi-coding-agent.
+			try {
+				session.dispose();
+			} catch (err) {
+				log.warn(`[${channelId}] Session dispose error: ${err instanceof Error ? err.message : String(err)}`);
 			}
 		},
 	};
