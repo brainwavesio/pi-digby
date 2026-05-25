@@ -4,8 +4,7 @@
  * supplied lookup (typically backed by SlackClient.getChannel).
  */
 import { readdirSync, statSync } from "fs";
-import { join } from "path";
-import { isDeniedSegment } from "./acl.js";
+import { isDeniedSegment, resolveSafe } from "./acl.js";
 import { escapeHtml } from "./template.js";
 
 export type ListingEntry = {
@@ -22,11 +21,20 @@ export type ChannelNameLookup = (channelId: string) => string | undefined;
 /**
  * Read `absDir` and produce a sorted, filtered list of entries.
  *
+ * `workingDir` is the wiki root; every child is run through resolveSafe so
+ * symlink-escapes and root-escapes are excluded from listings (not just
+ * from request-time path resolution).
+ *
  * `urlDir` is the corresponding `/w/`-rooted URL path (with trailing slash,
  * or "" for the wiki root). `lookupChannel` is called for entries that look
  * like Slack channel IDs (`C…`, `D…`, or `G…` followed by 8+ alnums).
  */
-export function listDirectory(absDir: string, urlDir: string, lookupChannel?: ChannelNameLookup): ListingEntry[] {
+export function listDirectory(
+	workingDir: string,
+	absDir: string,
+	urlDir: string,
+	lookupChannel?: ChannelNameLookup,
+): ListingEntry[] {
 	let names: string[];
 	try {
 		names = readdirSync(absDir);
@@ -37,15 +45,22 @@ export function listDirectory(absDir: string, urlDir: string, lookupChannel?: Ch
 	const out: ListingEntry[] = [];
 	for (const name of names) {
 		if (isDeniedSegment(name)) continue;
+
+		// Run the full ACL on each child so a symlinked file pointing outside
+		// the root never appears in a listing. The listing URL path (urlDir +
+		// name) is the canonical form resolveSafe expects.
+		const safe = resolveSafe(workingDir, `${urlDir}${name}`);
+		if (!safe.ok) continue;
+
 		let s: ReturnType<typeof statSync>;
 		try {
-			s = statSync(join(absDir, name));
+			s = statSync(safe.absPath);
 		} catch {
 			continue;
 		}
 		const isDir = s.isDirectory();
 		const isFile = s.isFile();
-		if (!isDir && !isFile) continue; // skip sockets/symlinks-to-elsewhere/etc.
+		if (!isDir && !isFile) continue; // skip sockets/devices/etc.
 
 		const channelName = isDir && lookupChannel ? resolveChannelName(name, lookupChannel) : undefined;
 		const displayLabel = channelName ?? name;

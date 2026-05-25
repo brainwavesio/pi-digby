@@ -338,7 +338,7 @@ function serveDirectory(
 	res: ServerResponse,
 ): void {
 	const urlDir = decodedPath.length === 0 ? "" : `${decodedPath.replace(/\/+$/, "")}/`;
-	const entries = listDirectory(absDir, urlDir, opts.lookupChannel);
+	const entries = listDirectory(opts.workingDir, absDir, urlDir, opts.lookupChannel);
 	const labelOverrides = channelLabelOverrides(decodedPath, opts.lookupChannel);
 	const lastSeg = decodedPath.replace(/\/+$/, "").split("/").filter(Boolean).pop() ?? "index";
 	const title = labelOverrides?.[lastSeg] ?? (decodedPath === "" ? "digby" : lastSeg);
