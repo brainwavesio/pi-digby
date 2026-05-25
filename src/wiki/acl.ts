@@ -22,7 +22,13 @@ const DENY_SEGMENTS = new Set(["credentials"]);
 export function isDeniedSegment(name: string): boolean {
 	if (name.length === 0) return true;
 	if (name.startsWith(".")) return true;
-	if (DENY_SEGMENTS.has(name)) return true;
+	// Compare case-insensitively so deny rules hold on case-insensitive
+	// filesystems (macOS APFS/HFS+, NTFS) too — `/w/CREDENTIALS/foo` must
+	// fail just like `/w/credentials/foo`. Prod runs on ext4 (case-
+	// sensitive) so the actual exposure is dev only, but the cost of
+	// normalising is trivial and the consequence of a future filesystem
+	// change is severe.
+	if (DENY_SEGMENTS.has(name.toLowerCase())) return true;
 	// Reject ASCII control characters (0x00-0x1f, 0x7f) and embedded NUL,
 	// which can confuse downstream filesystem APIs. Unicode is fine.
 	if (/[\x00-\x1f\x7f]/.test(name)) return true;

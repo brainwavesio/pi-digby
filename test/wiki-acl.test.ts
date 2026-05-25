@@ -11,8 +11,13 @@ describe("isDeniedSegment", () => {
 		expect(isDeniedSegment(".env")).toBe(true);
 		expect(isDeniedSegment(".cache")).toBe(true);
 	});
-	it("denies credentials by name", () => {
+	it("denies credentials by name (case-insensitively)", () => {
 		expect(isDeniedSegment("credentials")).toBe(true);
+		// Belt-and-braces for case-insensitive filesystems where realpath
+		// would otherwise preserve the request casing past the deny check.
+		expect(isDeniedSegment("Credentials")).toBe(true);
+		expect(isDeniedSegment("CREDENTIALS")).toBe(true);
+		expect(isDeniedSegment("CrEdEnTiAlS")).toBe(true);
 	});
 	it("denies empty segment", () => {
 		expect(isDeniedSegment("")).toBe(true);

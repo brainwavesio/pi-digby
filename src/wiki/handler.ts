@@ -47,7 +47,12 @@ const linkExistsCache = new QuickLRU<string, { exists: boolean; expiresAt: numbe
 });
 
 function cachedLinkExists(workingDir: string, urlPath: string, now = Date.now()): boolean {
-	const cached = linkExistsCache.get(urlPath);
+	// Key by workingDir + URL path so two handlers with different roots
+	// can't poison each other's broken-link styling. In practice we run
+	// one handler per process, but the cache is module-global so this is
+	// belt-and-braces.
+	const key = `${workingDir}\0${urlPath}`;
+	const cached = linkExistsCache.get(key);
 	if (cached && cached.expiresAt > now) return cached.exists;
 
 	const rel = urlPath.startsWith("/w/") ? urlPath.slice("/w/".length) : urlPath;
@@ -55,7 +60,7 @@ function cachedLinkExists(workingDir: string, urlPath: string, now = Date.now())
 	const r = decoded === null ? null : resolveSafe(workingDir, decoded);
 	const exists = !!r?.ok && existsSync(r.absPath);
 
-	linkExistsCache.set(urlPath, { exists, expiresAt: now + LINK_EXISTS_TTL_MS });
+	linkExistsCache.set(key, { exists, expiresAt: now + LINK_EXISTS_TTL_MS });
 	return exists;
 }
 
