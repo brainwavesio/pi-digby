@@ -40,6 +40,18 @@ export class HttpServer {
 		const server = createServer(async (req, res) => {
 			const path = req.url?.split("?")[0] || "/";
 
+			// Defence in depth: no Digby surface should be indexed by crawlers.
+			// Set the header before any handler runs so every response carries it
+			// (including 404s, redirects, raw images, and webhook 405s).
+			res.setHeader("X-Robots-Tag", "noindex, nofollow");
+
+			// Explicit robots.txt for crawlers that don't read headers.
+			if (req.method === "GET" && path === "/robots.txt") {
+				res.writeHead(200, { "Content-Type": "text/plain" });
+				res.end("User-agent: *\nDisallow: /\n");
+				return;
+			}
+
 			// Webhook routes (exact match, POST only)
 			if (path.startsWith("/webhooks/")) {
 				if (req.method !== "POST") {
