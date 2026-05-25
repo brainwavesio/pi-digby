@@ -7,6 +7,7 @@
 import { createReadStream, existsSync, readFileSync, statSync } from "fs";
 import type { IncomingMessage, ServerResponse } from "http";
 import { extname, join } from "path";
+import QuickLRU from "quick-lru";
 import { pipeline } from "stream/promises";
 import { fileURLToPath } from "url";
 import * as log from "../log.js";
@@ -28,6 +29,40 @@ import { buildCrumbs, renderLoginPage, renderMissingBody, renderShell } from "./
 
 const RENDER_MAX_BYTES = 5 * 1024 * 1024; // 5 MB cap on rendered text
 const RAW_MAX_BYTES = 25 * 1024 * 1024; // 25 MB cap on raw bytes (images)
+
+/**
+ * Wikilink existence cache — keyed by URL path (already includes any
+ * `.md` suffix the renderer appended). Each entry is a {exists, expiresAt}
+ * record. The TTL keeps the cache fresh enough that files written by the
+ * bot show up as no-longer-broken within a minute; the LRU cap bounds
+ * memory even if a page references thousands of unique targets.
+ *
+ * Cross-render reuse matters: most wikilinks within a page (and across
+ * pages in a session) point at a small set of canonical targets, so
+ * repeat lookups never hit disk.
+ */
+const LINK_EXISTS_TTL_MS = 60 * 1000;
+const linkExistsCache = new QuickLRU<string, { exists: boolean; expiresAt: number }>({
+	maxSize: 4096,
+});
+
+function cachedLinkExists(workingDir: string, urlPath: string, now = Date.now()): boolean {
+	const cached = linkExistsCache.get(urlPath);
+	if (cached && cached.expiresAt > now) return cached.exists;
+
+	const rel = urlPath.startsWith("/w/") ? urlPath.slice("/w/".length) : urlPath;
+	const decoded = safeDecode(rel);
+	const r = decoded === null ? null : resolveSafe(workingDir, decoded);
+	const exists = !!r?.ok && existsSync(r.absPath);
+
+	linkExistsCache.set(urlPath, { exists, expiresAt: now + LINK_EXISTS_TTL_MS });
+	return exists;
+}
+
+/** Test helper — clear the wikilink existence cache between tests. */
+export function __clearLinkExistsCache(): void {
+	linkExistsCache.clear();
+}
 
 // Public CSS lives next to this file at compile time. Resolve once.
 const PUBLIC_DIR = fileURLToPath(new URL("./public/", import.meta.url));
@@ -347,11 +382,7 @@ async function handleWiki(
 		return wikiNotFound(opts, slide, decodedPath, res);
 	}
 
-	const linkExists = (urlPath: string) => {
-		const rel = urlPath.startsWith("/w/") ? urlPath.slice("/w/".length) : urlPath;
-		const r = resolveSafe(opts.workingDir, safeDecode(rel) ?? "");
-		return r.ok && existsSync(r.absPath);
-	};
+	const linkExists = (urlPath: string) => cachedLinkExists(opts.workingDir, urlPath);
 
 	const isMd = extname(resolved.absPath).toLowerCase() === ".md";
 	const rendered = isMd
