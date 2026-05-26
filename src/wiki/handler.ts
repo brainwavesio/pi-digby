@@ -23,6 +23,7 @@ import {
 	verifyCookie,
 	verifyState,
 } from "./auth.js";
+import { extractFrontmatter, renderFrontmatter } from "./frontmatter.js";
 import { listDirectory, renderListingBody, renderRootListing } from "./listing.js";
 import { createRenderer, inferLang, type Renderer } from "./render.js";
 import { buildCrumbs, renderLoginPage, renderMissingBody, renderShell } from "./template.js";
@@ -390,13 +391,24 @@ async function handleWiki(
 	const linkExists = (urlPath: string) => cachedLinkExists(opts.workingDir, urlPath);
 
 	const isMd = extname(resolved.absPath).toLowerCase() === ".md";
+	let renderInput = content;
+	let frontmatterHtml = "";
+	if (isMd) {
+		// Lift YAML frontmatter into a masthead block above the body so the
+		// closing `---` doesn't get treated as a setext H2 underline.
+		const { frontmatter, body } = extractFrontmatter(content);
+		if (frontmatter) {
+			renderInput = body;
+			frontmatterHtml = renderFrontmatter(frontmatter);
+		}
+	}
 	const rendered = isMd
-		? renderer.renderMarkdown(content, { linkExists })
+		? renderer.renderMarkdown(renderInput, { linkExists })
 		: renderer.renderTextAsCode(content, resolved.absPath, { linkExists });
 	const banner = truncated
 		? `<div class="wiki-banner">Showing the first ${formatSize(RENDER_MAX_BYTES)} of ${formatSize(stat.size)}. Larger files aren't rendered in full.</div>`
 		: "";
-	const bodyHtml = `${banner}${rendered}`;
+	const bodyHtml = `${banner}${frontmatterHtml}${rendered}`;
 
 	const labelOverrides = channelLabelOverrides(decodedPath, opts.lookupChannel);
 	const lastSeg = decodedPath.slice(decodedPath.lastIndexOf("/") + 1);
