@@ -259,6 +259,45 @@ html, body {
 .wiki-foot a { color: var(--fg-meta); text-decoration: none; }
 .wiki-foot a:hover { color: var(--fg); }
 
+/* Frontmatter masthead — sits between title and body for .md files
+   with YAML frontmatter. Mono key/value grid, muted color, editorial. */
+.wiki-frontmatter {
+	margin: 0 0 32px;
+	padding: 14px 16px;
+	background: var(--bg-card);
+	border-left: 2px solid var(--border);
+	font-family: var(--font-mono);
+	font-size: 12px;
+	line-height: 1.6;
+	color: var(--fg-muted);
+	display: grid;
+	grid-template-columns: max-content 1fr;
+	gap: 4px 16px;
+}
+.wiki-fm-row {
+	display: contents;
+}
+.wiki-fm-key {
+	color: var(--fg-meta);
+	text-transform: lowercase;
+	letter-spacing: 0.02em;
+}
+.wiki-fm-val {
+	color: var(--fg);
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	align-items: center;
+}
+.wiki-tag {
+	display: inline-block;
+	padding: 1px 8px;
+	background: var(--bg-chip);
+	border-radius: 999px;
+	font-size: 11px;
+	color: var(--fg-muted);
+}
+
 /* Truncation banner */
 .wiki-banner {
 	margin: 0 0 24px;
