@@ -2,7 +2,13 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { afterEach, describe, expect, it } from "vitest";
-import { listDirectory, renderListingBody } from "../src/wiki/listing.js";
+import {
+	type ListingEntry,
+	listDirectory,
+	partitionRootEntries,
+	renderListingBody,
+	renderRootListing,
+} from "../src/wiki/listing.js";
 
 describe("listDirectory", () => {
 	let root: string | undefined;
@@ -88,5 +94,141 @@ describe("renderListingBody", () => {
 		expect(html).toContain("/w/memory/");
 		expect(html).toContain('class="dir"');
 		expect(html).toContain("2026-01-01");
+	});
+});
+
+describe("formatChannelLabel (via listDirectory)", () => {
+	let root: string | undefined;
+	afterEach(() => {
+		if (root) rmSync(root, { recursive: true, force: true });
+		root = undefined;
+	});
+
+	it("renders channels as #name and DMs as DM:name (not #DM:name)", () => {
+		root = mkdtempSync(join(tmpdir(), "digby-wiki-listing-"));
+		mkdirSync(join(root, "C0123ABCD"));
+		mkdirSync(join(root, "D0456EFGH"));
+		const lookup = (id: string) => {
+			if (id === "C0123ABCD") return "general";
+			if (id === "D0456EFGH") return "DM:tom";
+			return undefined;
+		};
+		const entries = listDirectory(root, root, "", lookup);
+		const channel = entries.find((e) => e.name === "C0123ABCD");
+		const dm = entries.find((e) => e.name === "D0456EFGH");
+		expect(channel?.displayLabel).toBe("#general");
+		expect(dm?.displayLabel).toBe("DM:tom");
+	});
+
+	it("flags unresolved channel-shaped IDs as archived (raw label preserved)", () => {
+		root = mkdtempSync(join(tmpdir(), "digby-wiki-listing-"));
+		mkdirSync(join(root, "C0123ABCD"));
+		const entries = listDirectory(root, root, "", () => undefined);
+		const e = entries[0];
+		expect(e.archived).toBe(true);
+		expect(e.displayLabel).toBe("C0123ABCD");
+	});
+
+	it("does not mark non-channel-shaped dirs as archived", () => {
+		root = mkdtempSync(join(tmpdir(), "digby-wiki-listing-"));
+		mkdirSync(join(root, "memory"));
+		mkdirSync(join(root, "linear:abcd-1234"));
+		const entries = listDirectory(root, root, "", () => undefined);
+		for (const e of entries) expect(e.archived).toBeUndefined();
+	});
+});
+
+describe("partitionRootEntries", () => {
+	const dir = (name: string, displayLabel = name): ListingEntry => ({
+		name,
+		displayLabel,
+		href: `/w/${name}/`,
+		isDir: true,
+		size: 0,
+		mtimeMs: 0,
+	});
+	const file = (name: string): ListingEntry => ({
+		name,
+		displayLabel: name,
+		href: `/w/${name}`,
+		isDir: false,
+		size: 100,
+		mtimeMs: 0,
+	});
+
+	it("buckets channels, linear, and notes correctly", () => {
+		const entries = [
+			dir("memory"),
+			dir("repos"),
+			dir("compliance"), // looks like... compliance, NOT a channel
+			dir("C0123ABCD", "#general"),
+			dir("D0456EFGH", "DM:tom"),
+			dir("G0789IJKL", "#group-dm"),
+			dir("linear:abc-123"),
+			dir("linear:def-456"),
+			file("MEMORY.md"),
+			file("README.md"),
+		];
+		const { notes, channels, linear } = partitionRootEntries(entries);
+		expect(notes.map((e) => e.name)).toEqual(["memory", "repos", "compliance", "MEMORY.md", "README.md"]);
+		expect(channels.map((e) => e.name)).toEqual(["C0123ABCD", "D0456EFGH", "G0789IJKL"]);
+		expect(linear.map((e) => e.name)).toEqual(["linear:abc-123", "linear:def-456"]);
+	});
+
+	it("does not misclassify 'compliance/' as a channel", () => {
+		const { notes, channels } = partitionRootEntries([dir("compliance")]);
+		expect(notes.map((e) => e.name)).toEqual(["compliance"]);
+		expect(channels).toEqual([]);
+	});
+
+	it("treats files in the root as notes regardless of name", () => {
+		// A file (not dir) named C0123ABCD wouldn't ever be created by Slack,
+		// but we shouldn't misclassify it if it appears.
+		const { notes, channels } = partitionRootEntries([file("C0123ABCD")]);
+		expect(notes.map((e) => e.name)).toEqual(["C0123ABCD"]);
+		expect(channels).toEqual([]);
+	});
+});
+
+describe("renderRootListing", () => {
+	const dir = (name: string, archived = false): ListingEntry => ({
+		name,
+		displayLabel: name.startsWith("C") || name.startsWith("D") || name.startsWith("G") ? `#${name}` : name,
+		href: `/w/${name}/`,
+		isDir: true,
+		size: 0,
+		mtimeMs: 0,
+		archived: archived || undefined,
+	});
+
+	it("renders three sections when all three buckets have content", () => {
+		const html = renderRootListing([
+			dir("memory"),
+			dir("C0123ABCD"),
+			dir("linear:abc-123"),
+		]);
+		expect(html).toContain(">Notes<");
+		expect(html).toContain(">Channels<");
+		expect(html).toContain(">Linear<");
+		// Section order — notes appears before channels appears before linear.
+		expect(html.indexOf(">Notes<")).toBeLessThan(html.indexOf(">Channels<"));
+		expect(html.indexOf(">Channels<")).toBeLessThan(html.indexOf(">Linear<"));
+	});
+
+	it("omits empty sections", () => {
+		const html = renderRootListing([dir("memory")]);
+		expect(html).toContain(">Notes<");
+		expect(html).not.toContain(">Channels<");
+		expect(html).not.toContain(">Linear<");
+	});
+
+	it("renders archived rows with the archived class + (archived) tag", () => {
+		const html = renderRootListing([dir("C0DEADBEEF", true)]);
+		expect(html).toContain('tr class="archived"');
+		expect(html).toContain("(archived)");
+	});
+
+	it("falls back to empty state when there are no entries", () => {
+		expect(renderRootListing([])).toContain("Empty");
 	});
 });

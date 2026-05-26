@@ -187,6 +187,19 @@ html, body {
 	}
 }
 
+/* Root listing sections (notes / channels / linear) */
+.wiki-section + .wiki-section { margin-top: 40px; }
+.wiki-section-title {
+	font-family: var(--font-mono);
+	font-size: 11px;
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	color: var(--fg-meta);
+	font-weight: 500;
+	margin: 0 0 8px;
+	padding-bottom: 4px;
+}
+
 /* Directory listing */
 .wiki-listing { width: 100%; border-collapse: collapse; font-size: 14px; }
 .wiki-listing th {
@@ -214,6 +227,21 @@ html, body {
 	font-size: 11px;
 	color: var(--fg-meta);
 	white-space: nowrap;
+}
+
+/* Archived channels: present but demoted — the bot was removed from the
+   channel, or it was archived, or it's a private DM we can no longer name. */
+.wiki-listing tr.archived td a {
+	color: var(--fg-meta);
+	font-family: var(--font-mono);
+	font-size: 12px;
+}
+.wiki-listing tr.archived .archived-tag {
+	font-family: var(--font-mono);
+	font-size: 10px;
+	color: var(--fg-meta);
+	margin-left: 6px;
+	opacity: 0.7;
 }
 
 /* Footer */
