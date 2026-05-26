@@ -76,9 +76,13 @@ export function listDirectory(
 		const isFile = s.isFile();
 		if (!isDir && !isFile) continue; // skip sockets/devices/etc.
 
-		const channelLookup = isDir && lookupChannel && CHANNEL_ID_PATTERN.test(name) ? lookupChannel(name) : undefined;
 		const isChannelShaped = isDir && CHANNEL_ID_PATTERN.test(name);
-		const archived = isChannelShaped && channelLookup === undefined;
+		// Only call (and only judge "archived") when a lookup is actually
+		// configured. Without lookupChannel we'd otherwise mark every
+		// channel-shaped dir as archived, which would be a lie — we just
+		// don't know.
+		const channelLookup = isChannelShaped && lookupChannel ? lookupChannel(name) : undefined;
+		const archived = isChannelShaped && lookupChannel !== undefined && channelLookup === undefined;
 		const displayLabel = channelLookup ? formatChannelLabel(channelLookup) : name;
 		const href = `/w/${urlDir}${encodeURIComponent(name)}${isDir ? "/" : ""}`;
 
@@ -97,9 +101,15 @@ export function listDirectory(
 	return out;
 }
 
-/** Slack DMs come back from the API as `DM:username`; channels as plain names. */
+/**
+ * Slack DMs come back from the SlackClient as `DM:username`; channels as
+ * plain names. We prefix everything with `#` because the leading hash is
+ * the visual signal "this is a Slack thing, not a directory of notes" —
+ * which matters most in the Channels section where DMs and channels sit
+ * side by side.
+ */
 function formatChannelLabel(name: string): string {
-	return name.startsWith("DM:") ? name : `#${name}`;
+	return `#${name}`;
 }
 
 function compareEntries(a: ListingEntry, b: ListingEntry): number {

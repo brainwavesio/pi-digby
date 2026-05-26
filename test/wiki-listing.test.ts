@@ -104,7 +104,7 @@ describe("formatChannelLabel (via listDirectory)", () => {
 		root = undefined;
 	});
 
-	it("renders channels as #name and DMs as DM:name (not #DM:name)", () => {
+	it("prefixes both channels and DMs with # (Slack-shape signal)", () => {
 		root = mkdtempSync(join(tmpdir(), "digby-wiki-listing-"));
 		mkdirSync(join(root, "C0123ABCD"));
 		mkdirSync(join(root, "D0456EFGH"));
@@ -117,7 +117,7 @@ describe("formatChannelLabel (via listDirectory)", () => {
 		const channel = entries.find((e) => e.name === "C0123ABCD");
 		const dm = entries.find((e) => e.name === "D0456EFGH");
 		expect(channel?.displayLabel).toBe("#general");
-		expect(dm?.displayLabel).toBe("DM:tom");
+		expect(dm?.displayLabel).toBe("#DM:tom");
 	});
 
 	it("flags unresolved channel-shaped IDs as archived (raw label preserved)", () => {
@@ -127,6 +127,18 @@ describe("formatChannelLabel (via listDirectory)", () => {
 		const e = entries[0];
 		expect(e.archived).toBe(true);
 		expect(e.displayLabel).toBe("C0123ABCD");
+	});
+
+	it("does NOT mark anything archived when no lookup function is configured", () => {
+		// Cubic finding: marking archived without a lookup attempt would
+		// be a lie. When lookupChannel is absent we simply don't know.
+		root = mkdtempSync(join(tmpdir(), "digby-wiki-listing-"));
+		mkdirSync(join(root, "C0123ABCD"));
+		mkdirSync(join(root, "D0456EFGH"));
+		const entries = listDirectory(root, root, "", undefined);
+		for (const e of entries) expect(e.archived).toBeUndefined();
+		// Display label falls back to the raw ID.
+		expect(entries.find((e) => e.name === "C0123ABCD")?.displayLabel).toBe("C0123ABCD");
 	});
 
 	it("does not mark non-channel-shaped dirs as archived", () => {
