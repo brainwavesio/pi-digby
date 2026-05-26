@@ -407,6 +407,13 @@ async function handleWiki(
 
 	const linkExists = (urlPath: string) => cachedLinkExists(opts.workingDir, urlPath);
 
+	// Wikilink relative-resolution context: the first segment of the page's
+	// rel path under workingDir. Empty for pages at the root, so root-level
+	// notes keep root-absolute resolution. Subdirectory pages get their
+	// top dir prefixed onto relative targets (e.g. `[[people/tom]]` on
+	// `memory/people/tom.md` resolves under `memory/`).
+	const pageTopDir = resolved.relPath.includes("/") ? resolved.relPath.split("/", 1)[0] : "";
+
 	const isMd = extname(resolved.absPath).toLowerCase() === ".md";
 	let renderInput = content;
 	let frontmatterHtml = "";
@@ -420,8 +427,8 @@ async function handleWiki(
 		}
 	}
 	const rendered = isMd
-		? renderer.renderMarkdown(renderInput, { linkExists })
-		: renderer.renderTextAsCode(content, resolved.absPath, { linkExists });
+		? renderer.renderMarkdown(renderInput, { linkExists, pageTopDir })
+		: renderer.renderTextAsCode(content, resolved.absPath, { linkExists, pageTopDir });
 	const banner = truncated
 		? `<div class="wiki-banner">Showing the first ${formatSize(RENDER_MAX_BYTES)} of ${formatSize(stat.size)}. Larger files aren't rendered in full.</div>`
 		: "";
