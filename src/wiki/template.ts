@@ -9,6 +9,8 @@ export type ShellOptions = {
 	crumbs: Crumb[];
 	meta?: string;
 	bodyHtml: string;
+	/** Current search query, if rendering a search page — populates the box. */
+	searchQuery?: string;
 };
 
 export function renderShell(opts: ShellOptions): string {
@@ -23,6 +25,9 @@ export function renderShell(opts: ShellOptions): string {
 </head>
 <body>
 <main class="wiki-shell">
+<form class="wiki-search-bar" action="/w/_search" method="get" role="search">
+<input type="search" name="q" placeholder="Search Digby's notes" autocomplete="off" maxlength="256" value="${escapeHtml(opts.searchQuery ?? "")}">
+</form>
 <nav class="wiki-crumb">${renderCrumbs(opts.crumbs)}</nav>
 <h1 class="wiki-title">${escapeHtml(opts.title)}</h1>
 ${opts.meta ? `<div class="wiki-meta">${escapeHtml(opts.meta)}</div>` : ""}

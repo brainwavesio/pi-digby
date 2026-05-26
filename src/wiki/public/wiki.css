@@ -56,6 +56,31 @@ html, body {
 	padding: 32px 24px 96px;
 }
 
+/* Persistent search bar at the top of every wiki page. */
+.wiki-search-bar {
+	margin: 0 0 16px;
+}
+.wiki-search-bar input[type="search"] {
+	width: 100%;
+	padding: 8px 12px;
+	font-family: var(--font-mono);
+	font-size: 13px;
+	color: var(--fg);
+	background: var(--bg-card);
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	outline: none;
+	transition: border-color 150ms;
+	-webkit-appearance: none;
+	appearance: none;
+}
+.wiki-search-bar input[type="search"]::placeholder {
+	color: var(--fg-meta);
+}
+.wiki-search-bar input[type="search"]:focus {
+	border-color: var(--accent);
+}
+
 .wiki-crumb {
 	font-family: var(--font-mono);
 	font-size: 12px;
@@ -242,6 +267,44 @@ html, body {
 	color: var(--fg-meta);
 	margin-left: 6px;
 	opacity: 0.7;
+}
+
+/* Search results */
+.wiki-search-results {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+.wiki-search-hit {
+	margin: 0 0 24px;
+	padding: 0 0 20px;
+	border-bottom: 1px solid var(--border);
+}
+.wiki-search-hit:last-child {
+	border-bottom: none;
+}
+.wiki-search-title {
+	display: block;
+	font-family: var(--font-display);
+	font-weight: 500;
+	font-size: 22px;
+	color: var(--fg);
+	text-decoration: none;
+	margin-bottom: 4px;
+}
+.wiki-search-title:hover { text-decoration: underline; }
+.wiki-search-path {
+	font-family: var(--font-mono);
+	font-size: 11px;
+	color: var(--fg-meta);
+	margin-bottom: 8px;
+}
+.wiki-search-snippet {
+	color: var(--fg-muted);
+	font-size: 15px;
+	line-height: 1.5;
+	max-height: 6em;
+	overflow: hidden;
 }
 
 /* Footer */
