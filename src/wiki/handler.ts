@@ -23,7 +23,7 @@ import {
 	verifyCookie,
 	verifyState,
 } from "./auth.js";
-import { listDirectory, renderListingBody } from "./listing.js";
+import { listDirectory, renderListingBody, renderRootListing } from "./listing.js";
 import { createRenderer, inferLang, type Renderer } from "./render.js";
 import { buildCrumbs, renderLoginPage, renderMissingBody, renderShell } from "./template.js";
 
@@ -429,11 +429,12 @@ function serveDirectory(
 	const labelOverrides = channelLabelOverrides(decodedPath, opts.lookupChannel);
 	const lastSeg = decodedPath.replace(/\/+$/, "").split("/").filter(Boolean).pop() ?? "index";
 	const title = labelOverrides?.[lastSeg] ?? (decodedPath === "" ? "digby" : lastSeg);
+	const isRoot = decodedPath === "";
 	const html = renderShell({
 		title,
 		crumbs: buildCrumbs(decodedPath, labelOverrides),
 		meta: `${entries.length} entries`,
-		bodyHtml: renderListingBody(entries),
+		bodyHtml: isRoot ? renderRootListing(entries) : renderListingBody(entries),
 	});
 	res.writeHead(200, {
 		"Content-Type": "text/html; charset=utf-8",
