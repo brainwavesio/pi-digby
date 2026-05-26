@@ -44,6 +44,21 @@ export type RendererOptions = {
 	 * Optional — when absent, no broken-link styling is applied.
 	 */
 	linkExists?: (urlPath: string) => boolean;
+	/**
+	 * Top-level "section" of the current page, derived from the first
+	 * segment of its path under workingDir. Wikilinks without a leading
+	 * slash are resolved relative to this — matches how Digby writes
+	 * memory notes (`[[people/tom.md]]` from `memory/people/tom.md`
+	 * means `memory/people/tom.md`, not the root-level `people/tom.md`).
+	 *
+	 * Leading-slash targets like `[[/skills/bg-task]]` escape this and
+	 * resolve from the wiki root, enabling cross-section links.
+	 *
+	 * Empty string or undefined → no prefix is applied, targets are
+	 * treated as root-absolute (the original v1 behaviour). Pages at
+	 * the workingDir root naturally fall back to this.
+	 */
+	pageTopDir?: string;
 };
 
 export type Renderer = {
@@ -97,7 +112,10 @@ export async function createRenderer(): Promise<Renderer> {
 
 	return {
 		renderMarkdown(content, opts) {
-			return pick(content).render(content, { wikiLinkExists: opts?.linkExists });
+			return pick(content).render(content, {
+				wikiLinkExists: opts?.linkExists,
+				wikiPageTopDir: opts?.pageTopDir ?? "",
+			});
 		},
 		renderTextAsCode(content, filename, opts) {
 			// Above the cap, skip the markdown pipeline entirely — feeding a
@@ -109,7 +127,10 @@ export async function createRenderer(): Promise<Renderer> {
 			const lang = inferLang(filename);
 			const fence = chooseFence(content);
 			const body = `${fence}${lang}\n${content}\n${fence}\n`;
-			return mdHighlighted.render(body, { wikiLinkExists: opts?.linkExists });
+			return mdHighlighted.render(body, {
+				wikiLinkExists: opts?.linkExists,
+				wikiPageTopDir: opts?.pageTopDir ?? "",
+			});
 		},
 	};
 }
@@ -145,11 +166,23 @@ export function chooseFence(content: string): string {
 // [[wikilink]] rule
 // ---------------------------------------------------------------------------
 //
-// Syntax:
-//   [[memory/tom]]           → <a href="/w/memory/tom.md">memory/tom</a>
-//   [[memory/tom|Tom McK]]   → <a href="/w/memory/tom.md">Tom McK</a>
-//   [[diagram.png]]          → <a href="/w/diagram.png">diagram.png</a>
-//   (target with a dot keeps its extension; otherwise .md is appended.)
+// Resolution semantics (decided after the v1 ship — Digby's memory notes
+// use links like `[[people/tom.md]]` from `memory/people/tom.md`, which the
+// original root-absolute resolution mis-rendered):
+//
+//   [[people/tom]]   on /w/memory/people/tom.md → /w/memory/people/tom.md
+//                    (target prefixed with the current page's TOP-LEVEL dir,
+//                    "memory" in this case)
+//   [[people/tom]]   on /w/README.md            → /w/people/tom.md
+//                    (page is at the workingDir root → no prefix applied)
+//   [[/skills/foo]]  anywhere                   → /w/skills/foo.md
+//                    (leading slash escapes the prefix, root-absolute)
+//   [[diagram.png]]                             → /w/<pageTopDir>/diagram.png
+//                    (target with extension keeps its name; .md is only
+//                    implied when there's no dot in the last segment)
+//
+// The page's top-level dir comes via the markdown-it env as
+// `wikiPageTopDir` (empty string for root-level pages).
 
 function installWikilinkRule(md: MarkdownIt): void {
 	md.inline.ruler.before("link", "wikilink", (state, silent) => {
@@ -168,8 +201,8 @@ function installWikilinkRule(md: MarkdownIt): void {
 		if (!target) return false;
 
 		if (!silent) {
-			const urlPath = wikilinkHref(target);
-			const env = state.env as { wikiLinkExists?: (p: string) => boolean } | undefined;
+			const env = state.env as { wikiLinkExists?: (p: string) => boolean; wikiPageTopDir?: string } | undefined;
+			const urlPath = wikilinkHref(target, env?.wikiPageTopDir ?? "");
 			const exists = env?.wikiLinkExists ? env.wikiLinkExists(urlPath) : true;
 
 			const open = state.push("link_open", "a", 1);
@@ -186,11 +219,22 @@ function installWikilinkRule(md: MarkdownIt): void {
 	});
 }
 
-/** Build the `/w/...` href for a wikilink target. Exported for tests. */
-export function wikilinkHref(target: string): string {
+/**
+ * Build the `/w/...` href for a wikilink target.
+ *
+ * `pageTopDir` is the top-level segment of the containing page's path
+ * (empty string for pages at the wiki root). Relative targets get this
+ * prefix; absolute targets (leading slash) skip it.
+ *
+ * Exported for tests.
+ */
+export function wikilinkHref(target: string, pageTopDir = ""): string {
+	const absolute = target.startsWith("/");
 	const clean = target.replace(/^\/+/, "").replace(/\/+$/, "");
 	if (clean === "") return "/w/";
 	const lastSeg = clean.slice(clean.lastIndexOf("/") + 1);
 	const hasExt = lastSeg.includes(".");
-	return `/w/${hasExt ? clean : `${clean}.md`}`;
+	const withExt = hasExt ? clean : `${clean}.md`;
+	const prefixed = !absolute && pageTopDir.length > 0 ? `${pageTopDir}/${withExt}` : withExt;
+	return `/w/${prefixed}`;
 }

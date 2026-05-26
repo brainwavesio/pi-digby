@@ -8,7 +8,7 @@ import {
 	wikilinkHref,
 } from "../src/wiki/render.js";
 
-describe("wikilinkHref", () => {
+describe("wikilinkHref — root-page resolution (no pageTopDir)", () => {
 	it("appends .md when target has no extension", () => {
 		expect(wikilinkHref("memory/tom")).toBe("/w/memory/tom.md");
 		expect(wikilinkHref("tom")).toBe("/w/tom.md");
@@ -17,16 +17,34 @@ describe("wikilinkHref", () => {
 		expect(wikilinkHref("diagram.png")).toBe("/w/diagram.png");
 		expect(wikilinkHref("memory/log.jsonl")).toBe("/w/memory/log.jsonl");
 	});
-	it("strips leading slashes", () => {
+	it("treats leading-slash targets as root-absolute", () => {
 		expect(wikilinkHref("/memory/tom")).toBe("/w/memory/tom.md");
 	});
 	it("treats the last segment's dot as the extension marker", () => {
-		// `notes.v2/index` has no extension on the last segment.
 		expect(wikilinkHref("notes.v2/index")).toBe("/w/notes.v2/index.md");
 	});
 	it("collapses an empty / root target to /w/", () => {
 		expect(wikilinkHref("/")).toBe("/w/");
 		expect(wikilinkHref("///")).toBe("/w/");
+	});
+});
+
+describe("wikilinkHref — relative-to-pageTopDir resolution", () => {
+	// The bot writes notes under memory/ using paths like [[people/tom.md]],
+	// expecting them to resolve under memory/ — not the root.
+	it("prefixes relative targets with the page's top-level dir", () => {
+		expect(wikilinkHref("people/tom.md", "memory")).toBe("/w/memory/people/tom.md");
+		expect(wikilinkHref("tom", "memory")).toBe("/w/memory/tom.md");
+	});
+	it("works for any top-level section, not just memory", () => {
+		expect(wikilinkHref("bg-task/SKILL", "skills")).toBe("/w/skills/bg-task/SKILL.md");
+	});
+	it("respects leading-slash escape for cross-section links", () => {
+		expect(wikilinkHref("/skills/bg-task", "memory")).toBe("/w/skills/bg-task.md");
+		expect(wikilinkHref("/diagram.png", "memory")).toBe("/w/diagram.png");
+	});
+	it("falls back to root-absolute when pageTopDir is empty (root page)", () => {
+		expect(wikilinkHref("memory/tom", "")).toBe("/w/memory/tom.md");
 	});
 });
 
@@ -67,6 +85,16 @@ describe("renderer", () => {
 		const html = r.renderMarkdown("[[memory/tom|Tom]]");
 		expect(html).toContain('href="/w/memory/tom.md"');
 		expect(html).toContain(">Tom<");
+	});
+
+	it("resolves wikilinks relative to pageTopDir when provided", () => {
+		const html = r.renderMarkdown("see [[people/tom]]", { pageTopDir: "memory" });
+		expect(html).toContain('href="/w/memory/people/tom.md"');
+	});
+
+	it("honours leading-slash escape inside a subdirectory page", () => {
+		const html = r.renderMarkdown("cross: [[/skills/bg-task]]", { pageTopDir: "memory" });
+		expect(html).toContain('href="/w/skills/bg-task.md"');
 	});
 
 	it("marks missing targets as broken", () => {
