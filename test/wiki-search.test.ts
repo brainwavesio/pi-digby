@@ -6,7 +6,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import type { HybridQueryResult } from "@tobilu/qmd";
+import type { SearchResult as QmdHit } from "@tobilu/qmd";
 import { afterEach, describe, expect, it } from "vitest";
 import { MAX_QUERY_LENGTH, runSearch, type SearchImpl } from "../src/wiki/search.js";
 
@@ -28,17 +28,20 @@ function fixture(): string {
 	return root;
 }
 
-function fakeHit(file: string, over: Partial<HybridQueryResult> = {}): HybridQueryResult {
+function fakeHit(filepath: string, over: Partial<QmdHit> = {}): QmdHit {
 	return {
-		file,
-		displayPath: file,
+		filepath,
+		displayPath: filepath,
 		title: "untitled",
-		body: "body",
-		bestChunk: "best chunk",
-		bestChunkPos: 0,
-		score: 1,
 		context: null,
+		hash: "abc",
 		docid: "doc1",
+		collectionName: "memory",
+		modifiedAt: "2026-05-26T00:00:00Z",
+		bodyLength: 100,
+		body: "body content with tom mentioned here",
+		score: 1,
+		source: "fts",
 		...over,
 	};
 }
