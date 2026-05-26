@@ -8,15 +8,24 @@
  * definitions live in /data/.config/qmd/index.yml (also seeded by
  * entrypoint.sh) and were baked into the DB at indexing time.
  *
- * The same store powers Digby's own recall via MCP, so wiki search results
- * match what the bot itself surfaces.
+ * Search mode: BM25 (`searchLex`). We deliberately do NOT use hybrid
+ * (`search`) or even hybrid-no-rerank: on the CPU-only Fargate task,
+ * the LLM query-expansion phase takes 4+ minutes per query. Verified by
+ * timing `qmd query 'tom' --no-rerank` inside the running container —
+ * it killed after 4m30s without returning. BM25 via the SDK against the
+ * already-open store completes in <1s and is what the bot's MCP-via-qmd
+ * recall uses in practice (the bot, too, can't afford multi-minute LLM
+ * calls in a chat loop).
+ *
+ * If we ever move to a GPU task, the swap back to `store.search()` is a
+ * one-line change.
  *
  * Lifecycle: createWikiSearch() initialises once when the handler boots and
- * returns null if the DB or model isn't ready (first-boot races, dev without
- * an index). The route degrades gracefully — "search unavailable" page —
+ * returns null if the DB isn't ready (first-boot races, dev without an
+ * index). The route degrades gracefully — "search unavailable" page —
  * rather than failing the whole wiki.
  */
-import { createStore, type HybridQueryResult, type QMDStore } from "@tobilu/qmd";
+import { createStore, extractSnippet, type QMDStore, type SearchResult as QmdHit } from "@tobilu/qmd";
 import * as log from "../log.js";
 import { resolveSafe } from "./acl.js";
 
@@ -48,7 +57,7 @@ export type WikiSearch = {
  * can degrade the wiki gracefully.
  */
 /** The single store operation runSearch needs. Mockable in tests. */
-export type SearchImpl = (query: string, limit: number) => Promise<HybridQueryResult[]>;
+export type SearchImpl = (query: string, limit: number) => Promise<QmdHit[]>;
 
 export async function createWikiSearch(opts: { workingDir: string; dbPath: string }): Promise<WikiSearch | null> {
 	let store: QMDStore;
@@ -58,8 +67,8 @@ export async function createWikiSearch(opts: { workingDir: string; dbPath: strin
 		log.warn(`[wiki] qmd store init failed at ${opts.dbPath}`, err instanceof Error ? err.message : String(err));
 		return null;
 	}
-	log.info(`[wiki] qmd store opened: ${opts.dbPath}`);
-	const impl: SearchImpl = (query, limit) => store.search({ query, limit });
+	log.info(`[wiki] qmd store opened (BM25 mode): ${opts.dbPath}`);
+	const impl: SearchImpl = (query, limit) => store.searchLex(query, { limit });
 	return {
 		search: (q) => runSearch(impl, opts.workingDir, q),
 		close: () => store.close(),
@@ -75,7 +84,7 @@ export async function runSearch(impl: SearchImpl, workingDir: string, query: str
 	if (trimmed.length === 0) return { ok: false, reason: "empty-query" };
 	if (trimmed.length > MAX_QUERY_LENGTH) return { ok: false, reason: "too-long" };
 
-	let raw: HybridQueryResult[];
+	let raw: QmdHit[];
 	try {
 		raw = await withTimeout(impl(trimmed, DEFAULT_RESULT_COUNT), SEARCH_TIMEOUT_MS);
 	} catch (err) {
@@ -86,32 +95,45 @@ export async function runSearch(impl: SearchImpl, workingDir: string, query: str
 
 	const hits: SearchHit[] = [];
 	for (const r of raw) {
-		const hit = toHit(r, workingDir);
+		const hit = toHit(r, trimmed, workingDir);
 		if (hit) hits.push(hit);
 	}
 	return { ok: true, hits, truncated: raw.length >= DEFAULT_RESULT_COUNT };
 }
 
 /**
- * Convert a qmd HybridQueryResult into a wiki-safe hit, or null if the file
+ * Convert a qmd SearchResult into a wiki-safe hit, or null if the file
  * lies outside workingDir / is denied by the ACL. We never want a search
  * result to surface a path the user couldn't otherwise browse to.
+ *
+ * Snippet is derived via the SDK's extractSnippet helper when body is
+ * present (qmd's searchLex returns body alongside metadata). Falls back
+ * to the empty string otherwise — title + path are enough to click.
  */
-function toHit(r: HybridQueryResult, workingDir: string): SearchHit | null {
-	if (typeof r.file !== "string" || r.file.length === 0) return null;
-	// qmd's `file` is the absolute path on disk; convert to a relative URL
-	// path under workingDir, then run it through the same ACL the rest of
-	// the wiki uses.
-	if (!r.file.startsWith(`${workingDir}/`)) return null;
-	const relCandidate = r.file.slice(workingDir.length + 1);
+function toHit(r: QmdHit, query: string, workingDir: string): SearchHit | null {
+	if (typeof r.filepath !== "string" || r.filepath.length === 0) return null;
+	if (!r.filepath.startsWith(`${workingDir}/`)) return null;
+	const relCandidate = r.filepath.slice(workingDir.length + 1);
 	const safe = resolveSafe(workingDir, relCandidate);
 	if (!safe.ok) return null;
+
+	let snippet = "";
+	if (typeof r.body === "string" && r.body.length > 0) {
+		try {
+			// extractSnippet returns a SnippetResult — the matched window lives
+			// on `.snippet`. Originally read `.text` (cubic caught it), which
+			// would silently empty every result.
+			snippet = extractSnippet(r.body, query, 240, r.chunkPos).snippet;
+		} catch {
+			snippet = r.body.slice(0, 240);
+		}
+	}
 
 	return {
 		urlPath: `/w/${safe.relPath.split("/").map(encodeURIComponent).join("/")}`,
 		relPath: safe.relPath,
 		title: typeof r.title === "string" && r.title.length > 0 ? r.title : safe.relPath,
-		snippet: typeof r.bestChunk === "string" ? r.bestChunk : "",
+		snippet,
 		score: typeof r.score === "number" ? r.score : 0,
 	};
 }
