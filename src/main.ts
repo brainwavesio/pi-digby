@@ -389,6 +389,10 @@ if (DIGBY_COOKIE_SECRET && DIGBY_SLACK_CLIENT_ID && DIGBY_SLACK_CLIENT_SECRET &&
 			redirectUri: `${DIGBY_WIKI_BASE_URL}/auth/slack/callback`,
 		},
 		lookupChannel: (id) => client.getChannel(id)?.name,
+		// entrypoint.sh symlinks /data/.cache/qmd onto the EFS path, so the
+		// sqlite index is the same one the CLI maintains. createWikiSearch
+		// degrades to "search unavailable" if the DB is absent.
+		qmdDbPath: join(workingDir, ".cache", "qmd", "index.sqlite"),
 	});
 	// Order matters — these are checked in registration order.
 	httpServer.registerGetPrefix("/public/", wikiHandler);

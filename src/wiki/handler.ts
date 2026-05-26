@@ -26,7 +26,8 @@ import {
 import { extractFrontmatter, renderFrontmatter } from "./frontmatter.js";
 import { listDirectory, renderListingBody, renderRootListing } from "./listing.js";
 import { createRenderer, inferLang, type Renderer } from "./render.js";
-import { buildCrumbs, renderLoginPage, renderMissingBody, renderShell } from "./template.js";
+import { createWikiSearch, type SearchHit, type SearchResult, type WikiSearch } from "./search.js";
+import { buildCrumbs, escapeHtml, renderLoginPage, renderMissingBody, renderShell } from "./template.js";
 
 const RENDER_MAX_BYTES = 5 * 1024 * 1024; // 5 MB cap on rendered text
 const RAW_MAX_BYTES = 25 * 1024 * 1024; // 25 MB cap on raw bytes (images)
@@ -84,12 +85,22 @@ export type WikiHandlerOptions = {
 	};
 	/** Resolve a Slack channel id to its name (no leading #). */
 	lookupChannel?: (channelId: string) => string | undefined;
+	/**
+	 * Path to the qmd sqlite index. When set, `/w/_search` is enabled and
+	 * backed by the @tobilu/qmd SDK opening this DB read-only. When unset
+	 * or the DB fails to open, search routes return "unavailable" and the
+	 * rest of the wiki keeps working.
+	 */
+	qmdDbPath?: string;
 };
 
 export async function createWikiHandler(
 	opts: WikiHandlerOptions,
 ): Promise<(req: IncomingMessage, res: ServerResponse) => Promise<void>> {
 	const renderer = await createRenderer();
+	const search = opts.qmdDbPath
+		? await createWikiSearch({ workingDir: opts.workingDir, dbPath: opts.qmdDbPath })
+		: null;
 
 	return async (req, res) => {
 		const url = new URL(req.url ?? "/", "http://localhost");
@@ -109,7 +120,7 @@ export async function createWikiHandler(
 			return handleLogout(res);
 		}
 		if (path === "/w" || path === "/w/" || path.startsWith("/w/")) {
-			return handleWiki(opts, renderer, url, req, res);
+			return handleWiki(opts, renderer, search, url, req, res);
 		}
 
 		res.writeHead(404, { "Content-Type": "text/plain" });
@@ -290,6 +301,7 @@ function loginPage(opts: WikiHandlerOptions, returnTo: string, res: ServerRespon
 async function handleWiki(
 	opts: WikiHandlerOptions,
 	renderer: Renderer,
+	search: WikiSearch | null,
 	url: URL,
 	req: IncomingMessage,
 	res: ServerResponse,
@@ -322,6 +334,11 @@ async function handleWiki(
 
 	if (decodedPath === null) {
 		return wikiNotFound(opts, slide, requestedPath, res);
+	}
+
+	// Virtual route: search.
+	if (decodedPath === "_search") {
+		return handleSearch(opts, search, url, slide, res);
 	}
 
 	const resolved = resolveSafe(opts.workingDir, decodedPath);
@@ -471,6 +488,88 @@ function wikiNotFound(opts: WikiHandlerOptions, slideCookie: string, decodedPath
 		"X-Robots-Tag": "noindex, nofollow",
 	});
 	res.end(html);
+}
+
+// ---------------------------------------------------------------------------
+// /w/_search
+// ---------------------------------------------------------------------------
+
+async function handleSearch(
+	_opts: WikiHandlerOptions,
+	search: WikiSearch | null,
+	url: URL,
+	slideCookie: string,
+	res: ServerResponse,
+): Promise<void> {
+	const rawQuery = url.searchParams.get("q") ?? "";
+	const result: SearchResult = search ? await search.search(rawQuery) : { ok: false, reason: "unavailable" };
+
+	log.info(
+		`[wiki] search q=${JSON.stringify(rawQuery.slice(0, 80))} ` +
+			(result.ok ? `hits=${result.hits.length}` : `reason=${result.reason}`),
+	);
+
+	const html = renderShell({
+		title: rawQuery.trim().length === 0 ? "search" : `search: ${rawQuery.trim()}`,
+		crumbs: [{ label: "digby", href: "/w/" }, { label: "search" }],
+		meta: searchMeta(result),
+		bodyHtml: renderSearchBody(rawQuery, result),
+		searchQuery: rawQuery,
+	});
+	res.writeHead(200, {
+		"Content-Type": "text/html; charset=utf-8",
+		"Cache-Control": "no-store",
+		"Set-Cookie": slideCookie,
+		"X-Robots-Tag": "noindex, nofollow",
+	});
+	res.end(html);
+}
+
+function searchMeta(r: SearchResult): string {
+	if (!r.ok) {
+		switch (r.reason) {
+			case "empty-query":
+				return "type a query above";
+			case "too-long":
+				return "query too long";
+			case "search-timeout":
+				return "search timed out";
+			case "search-failed":
+				return "search failed";
+			case "unavailable":
+				return "search index not available";
+		}
+	}
+	if (r.hits.length === 0) return "no matches";
+	return `${r.hits.length} hit${r.hits.length === 1 ? "" : "s"}${r.truncated ? " (showing first batch)" : ""}`;
+}
+
+function renderSearchBody(query: string, r: SearchResult): string {
+	if (!r.ok) {
+		if (r.reason === "empty-query") {
+			return `<p class="wiki-missing">Type something into the search box above.</p>`;
+		}
+		const messages: Record<typeof r.reason, string> = {
+			"too-long": `Queries are capped at 256 characters. Yours was ${query.length}.`,
+			"search-timeout": "qmd took too long to answer. Try a shorter, more specific query.",
+			"search-failed": "qmd returned an error. Check the bot logs for details.",
+			unavailable: "The search index isn't loaded on this deploy yet. Browsing still works.",
+		};
+		return `<p class="wiki-missing">${escapeHtml(messages[r.reason])}</p>`;
+	}
+	if (r.hits.length === 0) {
+		return `<p class="wiki-missing">No matches for <code>${escapeHtml(query)}</code>.</p>`;
+	}
+	const rows = r.hits.map(renderSearchHit).join("\n");
+	return `<ol class="wiki-search-results">\n${rows}\n</ol>`;
+}
+
+function renderSearchHit(h: SearchHit): string {
+	return `<li class="wiki-search-hit">
+<a class="wiki-search-title" href="${escapeHtml(h.urlPath)}">${escapeHtml(h.title)}</a>
+<div class="wiki-search-path">${escapeHtml(h.relPath)}</div>
+${h.snippet ? `<div class="wiki-search-snippet">${escapeHtml(h.snippet)}</div>` : ""}
+</li>`;
 }
 
 // ---------------------------------------------------------------------------

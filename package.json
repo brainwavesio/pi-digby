@@ -22,6 +22,7 @@
 		"@silvia-odwyer/photon-node": "^0.3.4",
 		"@slack/socket-mode": "^2.0.0",
 		"@slack/web-api": "^7.0.0",
+		"@tobilu/qmd": "^2.5.2",
 		"croner": "^9.1.0",
 		"diff": "^8.0.2",
 		"file-type": "^21.1.1",
