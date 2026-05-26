@@ -120,8 +120,10 @@ function toHit(r: QmdHit, query: string, workingDir: string): SearchHit | null {
 	let snippet = "";
 	if (typeof r.body === "string" && r.body.length > 0) {
 		try {
-			const s = extractSnippet(r.body, query, 240, r.chunkPos);
-			snippet = typeof s === "string" ? s : ((s as { text?: string }).text ?? "");
+			// extractSnippet returns a SnippetResult — the matched window lives
+			// on `.snippet`. Originally read `.text` (cubic caught it), which
+			// would silently empty every result.
+			snippet = extractSnippet(r.body, query, 240, r.chunkPos).snippet;
 		} catch {
 			snippet = r.body.slice(0, 240);
 		}
