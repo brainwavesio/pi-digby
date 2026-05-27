@@ -150,7 +150,7 @@ describe("selectLogMessagesForContext", () => {
 		expect(selected.map((m) => m.id)).toEqual(["slack:90.000000", "slack-thread-summary:90.000000"]);
 		const marker = selected.find((m) => m.id === "slack-thread-summary:90.000000");
 		expect(marker?.text).toContain('digby_replied="true"');
-		expect(marker?.text).toContain("Treat that ask as handled");
+		expect(marker?.text).toContain("Digby replied in a Slack thread");
 	});
 
 	it("emits a digby_replied=false marker when a thread exists but Digby never replied", () => {
@@ -169,7 +169,7 @@ describe("selectLogMessagesForContext", () => {
 		const marker = selected.find((m) => m.id === "slack-thread-summary:90.000000");
 		expect(marker).toBeDefined();
 		expect(marker?.text).toContain('digby_replied="false"');
-		expect(marker?.text).toContain("continued without him");
+		expect(marker?.text).toContain("Digby hasn't replied");
 	});
 
 	it("does not include a reply count in the marker (prompt-cache stability)", () => {

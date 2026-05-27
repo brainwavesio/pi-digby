@@ -107,8 +107,8 @@ export function formatSlackThreadBoundary(rootTs: string): SelectedContextMessag
 export function formatChannelThreadSummary(opts: { rootTs: string; digbyReplied: boolean }): SelectedContextMessage {
 	const rootTimestamp = (parseSlackTs(opts.rootTs) ?? Date.now() / 1000) * 1000;
 	const detail = opts.digbyReplied
-		? "Digby replied in a Slack thread on the previous message. Treat that ask as handled unless re-raised."
-		: "The previous message has a Slack thread that Digby hasn't replied in. The conversation continued without him.";
+		? "Digby replied in a Slack thread on the previous message."
+		: "The previous message has a Slack thread that Digby hasn't replied in.";
 	return {
 		id: `slack-thread-summary:${opts.rootTs}`,
 		// Sort immediately after the root, before any later top-level message.
