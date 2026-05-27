@@ -116,7 +116,10 @@ describe("selectLogMessagesForContext", () => {
 		expect(selected[1].timestamp).toBeLessThan(selected[2].timestamp);
 	});
 
-	it("keeps Slack top-level context to prior non-thread messages", () => {
+	it("keeps Slack top-level context to prior non-thread messages, with a thread-activity marker", () => {
+		// The marker is the channel-scope counterpart to the thread boundary:
+		// it tells Digby that a previous top-level message had thread activity
+		// so he doesn't treat it as still-pending alongside the current ask.
 		const messages = [
 			msg({ ts: "90.000000", text: "top-level one", userName: "amy" }),
 			msg({ ts: "100.000000", threadTs: "90.000000", text: "hidden thread reply", userName: "tom" }),
@@ -126,8 +129,85 @@ describe("selectLogMessagesForContext", () => {
 
 		expect(idsFor({ source: "slack", kind: "channel" }, "120.000000", messages)).toEqual([
 			"slack:90.000000",
+			"slack-thread-summary:90.000000",
 			"slack:110.000000",
 		]);
+	});
+
+	it("marks the prior @-mention as already handled when Digby replied in its thread", () => {
+		// Reproduces the 'handling both in parallel' footgun: without the
+		// marker, the channel session sees Jamie's @mention at 90 with no
+		// trace of Digby's thread reply, and conflates it with Tom's new ask.
+		const messages = [
+			msg({ ts: "90.000000", text: "@digby look at this", userName: "jamie" }),
+			msg({ ts: "95.000000", threadTs: "90.000000", text: "on it", user: "bot", isBot: true }),
+			msg({ ts: "120.000000", text: "current trigger", userName: "tom" }),
+		];
+		const selected = selectLogMessagesForContext(messages, {
+			currentTs: "120.000000",
+			scope: { source: "slack", kind: "channel" },
+		});
+		expect(selected.map((m) => m.id)).toEqual(["slack:90.000000", "slack-thread-summary:90.000000"]);
+		const marker = selected.find((m) => m.id === "slack-thread-summary:90.000000");
+		expect(marker?.text).toContain('digby_replied="true"');
+		expect(marker?.text).toContain("Treat that ask as handled");
+	});
+
+	it("emits a digby_replied=false marker when a thread exists but Digby never replied", () => {
+		// Tom: "and it could show threads which digby didn't reply in too."
+		// Useful so Digby knows there's an ongoing human conversation he isn't
+		// part of, instead of picking up the root message as unaddressed.
+		const messages = [
+			msg({ ts: "90.000000", text: "fyi team", userName: "amy" }),
+			msg({ ts: "95.000000", threadTs: "90.000000", text: "ack", userName: "sam" }),
+			msg({ ts: "120.000000", text: "current trigger", userName: "tom" }),
+		];
+		const selected = selectLogMessagesForContext(messages, {
+			currentTs: "120.000000",
+			scope: { source: "slack", kind: "channel" },
+		});
+		const marker = selected.find((m) => m.id === "slack-thread-summary:90.000000");
+		expect(marker).toBeDefined();
+		expect(marker?.text).toContain('digby_replied="false"');
+		expect(marker?.text).toContain("continued without him");
+	});
+
+	it("does not include a reply count in the marker (prompt-cache stability)", () => {
+		// Including a reply count would invalidate the channel's cached prefix
+		// every time a new thread reply landed. The binary `digby_replied`
+		// signal is enough to drive the model's behaviour.
+		const messages = [
+			msg({ ts: "90.000000", text: "thread root", userName: "amy" }),
+			msg({ ts: "91.000000", threadTs: "90.000000", text: "r1", userName: "sam" }),
+			msg({ ts: "92.000000", threadTs: "90.000000", text: "r2", userName: "kim" }),
+			msg({ ts: "93.000000", threadTs: "90.000000", text: "r3", userName: "lee" }),
+			msg({ ts: "120.000000", text: "trigger", userName: "tom" }),
+		];
+		const selected = selectLogMessagesForContext(messages, {
+			currentTs: "120.000000",
+			scope: { source: "slack", kind: "channel" },
+		});
+		const marker = selected.find((m) => m.id === "slack-thread-summary:90.000000");
+		expect(marker?.text).not.toMatch(/\b3\b/);
+		expect(marker?.text).not.toMatch(/replies/i);
+	});
+
+	it("does not leak future thread activity into the marker", () => {
+		// Thread replies after the current trigger ts must not influence the
+		// marker — they don't exist yet from Digby's perspective. A future
+		// reply by Digby on an unaddressed mention shouldn't make the marker
+		// claim it was handled.
+		const messages = [
+			msg({ ts: "90.000000", text: "@digby pls", userName: "jamie" }),
+			msg({ ts: "200.000000", threadTs: "90.000000", text: "future reply", user: "bot", isBot: true }),
+			msg({ ts: "120.000000", text: "current trigger", userName: "tom" }),
+		];
+		const selected = selectLogMessagesForContext(messages, {
+			currentTs: "120.000000",
+			scope: { source: "slack", kind: "channel" },
+		});
+		// No replies before the trigger → no marker at all.
+		expect(selected.find((m) => m.id === "slack-thread-summary:90.000000")).toBeUndefined();
 	});
 
 	it("keeps top-level bot event responses in channel context for event follow-ups", () => {
@@ -156,7 +236,12 @@ describe("selectLogMessagesForContext", () => {
 			msg({ ts: "120.000000", text: "current channel prompt", userName: "zoe" }),
 		];
 
-		expect(idsFor({ source: "slack", kind: "channel" }, "120.000000", messages)).toEqual(["slack:100.000000"]);
+		// Thread root 100 has bot activity inside its thread (111 isBot=true),
+		// so the channel scope gets a digby_replied=true marker.
+		expect(idsFor({ source: "slack", kind: "channel" }, "120.000000", messages)).toEqual([
+			"slack:100.000000",
+			"slack-thread-summary:100.000000",
+		]);
 		expect(idsFor({ source: "slack", kind: "thread", rootTs: "100.000000" }, "120.000000", messages)).toEqual([
 			"slack-thread-boundary:100.000000",
 			"slack:100.000000",
@@ -211,9 +296,11 @@ describe("selectLogMessagesForContext", () => {
 			msg({ ts: "130.000000", text: "current trigger", userName: "zoe" }),
 		];
 
+		// Root 100 has a corrected threaded reply at 120 → marker emitted.
 		expect(idsFor({ source: "slack", kind: "channel" }, "130.000000", messages)).toEqual([
 			"slack:90.000000",
 			"slack:100.000000",
+			"slack-thread-summary:100.000000",
 		]);
 
 		const threadSelected = selectLogMessagesForContext(messages, {

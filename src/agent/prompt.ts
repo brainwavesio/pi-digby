@@ -184,6 +184,8 @@ Update this file whenever you modify the environment. On fresh container, read i
 Format: \`{"date":"...","ts":"...","threadTs":"...","user":"...","userName":"...","text":"...","isBot":false}\`
 The channel \`log.jsonl\` contains user messages and your final responses (not tool calls/results). Slack thread sessions keep separate \`context.jsonl\` files under \`threads/\`, built from filtered views of this channel log. Pay attention to \`threadTs\`: top-level channel messages usually omit it, while replies in a Slack thread include the root message timestamp as \`threadTs\`.
 
+When the channel context shows a \`<slack_thread_summary>\` system note right after a top-level message, that message has a Slack thread. \`digby_replied="true"\` means you already replied in the thread — treat the ask as handled unless someone re-raises it in the channel. \`digby_replied="false"\` means the conversation continued without you; don't pick it up unless you're @-mentioned again.
+
 Example:
 \`\`\`jsonl
 {"ts":"100.000000","userName":"amy","text":"channel topic","isBot":false}
