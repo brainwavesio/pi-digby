@@ -92,6 +92,31 @@ export function formatSlackThreadBoundary(rootTs: string): SelectedContextMessag
 	};
 }
 
+/**
+ * Marker injected into channel-scope context immediately after a top-level
+ * message that has thread activity. Without this, channel context shows a
+ * past @-mention with no trace of the thread where it was actually addressed,
+ * and Digby treats it as still-pending alongside the current ask ("handling
+ * both in parallel" footgun).
+ *
+ * No reply count by design — it would change on every new thread reply and
+ * crack the channel's prompt cache at the marker's position every time. The
+ * binary `digby_replied` is enough to tell Digby whether the previous ask
+ * was his to handle.
+ */
+export function formatChannelThreadSummary(opts: { rootTs: string; digbyReplied: boolean }): SelectedContextMessage {
+	const rootTimestamp = (parseSlackTs(opts.rootTs) ?? Date.now() / 1000) * 1000;
+	const detail = opts.digbyReplied
+		? "Digby replied in a Slack thread on the previous message."
+		: "The previous message has a Slack thread that Digby hasn't replied in.";
+	return {
+		id: `slack-thread-summary:${opts.rootTs}`,
+		// Sort immediately after the root, before any later top-level message.
+		timestamp: rootTimestamp + 0.0005,
+		text: `<slack_thread_summary root_ts="${escapeAttribute(opts.rootTs)}" digby_replied="${opts.digbyReplied}">\nSystem note: ${detail}\n</slack_thread_summary>`,
+	};
+}
+
 function contextMessageFromLog(source: "linear" | "slack", logMsg: LogMessage): SelectedContextMessage {
 	const ts = logMsg.ts || `missing-ts:${timestampForMessage(logMsg)}`;
 	return {
@@ -162,10 +187,34 @@ function isTopLevelSlackMessage(logMsg: LogMessage): boolean {
 }
 
 function selectSlackChannelMessages(messages: LogMessage[], currentTs: string): SelectedContextMessage[] {
-	return sortLogMessages(messages)
-		.filter((logMsg) => isBeforeCurrent(logMsg, currentTs))
-		.filter(isTopLevelSlackMessage)
-		.map((logMsg) => contextMessageFromLog("slack", logMsg));
+	// Index thread replies by root ts so we can attach a "this had a thread"
+	// marker to each top-level message that has activity. Only replies before
+	// the current trigger count — we never reveal future thread state.
+	const repliesByRoot = new Map<string, LogMessage[]>();
+	for (const m of messages) {
+		if (!m.threadTs || m.threadTs === m.ts) continue; // not a thread reply
+		if (!isBeforeCurrent(m, currentTs)) continue;
+		const list = repliesByRoot.get(m.threadTs) ?? [];
+		list.push(m);
+		repliesByRoot.set(m.threadTs, list);
+	}
+
+	const out: SelectedContextMessage[] = [];
+	for (const logMsg of sortLogMessages(messages)
+		.filter((m) => isBeforeCurrent(m, currentTs))
+		.filter(isTopLevelSlackMessage)) {
+		out.push(contextMessageFromLog("slack", logMsg));
+		const replies = logMsg.ts ? repliesByRoot.get(logMsg.ts) : undefined;
+		if (replies && replies.length > 0) {
+			out.push(
+				formatChannelThreadSummary({
+					rootTs: logMsg.ts as string,
+					digbyReplied: replies.some((r) => r.isBot === true),
+				}),
+			);
+		}
+	}
+	return out;
 }
 
 function selectSlackThreadMessages(
@@ -355,6 +404,9 @@ function extractContextIds(text: string): string[] {
 	}
 	for (const match of text.matchAll(/<slack_thread_boundary\s+root_ts="([^"]+)"/g)) {
 		ids.push(`slack-thread-boundary:${match[1]}`);
+	}
+	for (const match of text.matchAll(/<slack_thread_summary\s+root_ts="([^"]+)"/g)) {
+		ids.push(`slack-thread-summary:${match[1]}`);
 	}
 
 	return ids;
