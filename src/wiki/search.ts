@@ -59,6 +59,15 @@ export type WikiSearch = {
 /** The single store operation runSearch needs. Mockable in tests. */
 export type SearchImpl = (query: string, limit: number) => Promise<QmdHit[]>;
 
+/**
+ * Resolve a qmd SearchResult's filepath to an absolute filesystem path.
+ * qmd v2.5+ returns virtual paths (`qmd://<collection>/<rel>`); the wiki ACL
+ * needs the real on-disk path to root-jail against workingDir. Pass null to
+ * drop a hit (e.g. unknown collection). Defaults to identity when omitted,
+ * which is what the unit tests rely on (they feed absolute paths directly).
+ */
+export type ResolveAbsolute = (filepath: string) => string | null;
+
 export async function createWikiSearch(opts: { workingDir: string; dbPath: string }): Promise<WikiSearch | null> {
 	let store: QMDStore;
 	try {
@@ -69,8 +78,12 @@ export async function createWikiSearch(opts: { workingDir: string; dbPath: strin
 	}
 	log.info(`[wiki] qmd store opened (BM25 mode): ${opts.dbPath}`);
 	const impl: SearchImpl = (query, limit) => store.searchLex(query, { limit });
+	// store.internal exposes resolveVirtualPath bound to the open DB. This
+	// turns `qmd://memory/people/tom.md` into `/data/memory/people/tom.md`
+	// using the collection paths stored in store_collections.
+	const resolveAbsolute: ResolveAbsolute = (fp) => store.internal.resolveVirtualPath(fp);
 	return {
-		search: (q) => runSearch(impl, opts.workingDir, q),
+		search: (q) => runSearch(impl, opts.workingDir, q, resolveAbsolute),
 		close: () => store.close(),
 	};
 }
@@ -79,7 +92,12 @@ export async function createWikiSearch(opts: { workingDir: string; dbPath: strin
  * Run a search through `impl` and return ACL-filtered hits.
  * Exported so tests can drive it without spinning up a real qmd store.
  */
-export async function runSearch(impl: SearchImpl, workingDir: string, query: string): Promise<SearchResult> {
+export async function runSearch(
+	impl: SearchImpl,
+	workingDir: string,
+	query: string,
+	resolveAbsolute: ResolveAbsolute = (fp) => fp,
+): Promise<SearchResult> {
 	const trimmed = query.trim();
 	if (trimmed.length === 0) return { ok: false, reason: "empty-query" };
 	if (trimmed.length > MAX_QUERY_LENGTH) return { ok: false, reason: "too-long" };
@@ -95,7 +113,7 @@ export async function runSearch(impl: SearchImpl, workingDir: string, query: str
 
 	const hits: SearchHit[] = [];
 	for (const r of raw) {
-		const hit = toHit(r, trimmed, workingDir);
+		const hit = toHit(r, trimmed, workingDir, resolveAbsolute);
 		if (hit) hits.push(hit);
 	}
 	return { ok: true, hits, truncated: raw.length >= DEFAULT_RESULT_COUNT };
@@ -110,10 +128,15 @@ export async function runSearch(impl: SearchImpl, workingDir: string, query: str
  * present (qmd's searchLex returns body alongside metadata). Falls back
  * to the empty string otherwise — title + path are enough to click.
  */
-function toHit(r: QmdHit, query: string, workingDir: string): SearchHit | null {
+function toHit(r: QmdHit, query: string, workingDir: string, resolveAbsolute: ResolveAbsolute): SearchHit | null {
 	if (typeof r.filepath !== "string" || r.filepath.length === 0) return null;
-	if (!r.filepath.startsWith(`${workingDir}/`)) return null;
-	const relCandidate = r.filepath.slice(workingDir.length + 1);
+	// qmd v2.5+ returns `qmd://<collection>/<rel>` virtual paths. Resolve to
+	// the on-disk path the collection's `path:` config points at; only then
+	// can we root-jail against workingDir.
+	const absolute = resolveAbsolute(r.filepath);
+	if (!absolute) return null;
+	if (!absolute.startsWith(`${workingDir}/`)) return null;
+	const relCandidate = absolute.slice(workingDir.length + 1);
 	const safe = resolveSafe(workingDir, relCandidate);
 	if (!safe.ok) return null;
 

@@ -105,6 +105,26 @@ describe("runSearch — ACL filtering", () => {
 		if (res.ok) expect(res.hits.map((h) => h.relPath)).toEqual(["MEMORY.md"]);
 	});
 
+	it("resolves qmd virtual paths via the supplied resolver", async () => {
+		// qmd v2.5+ returns `qmd://<collection>/<rel>` filepaths. The wiki
+		// passes store.internal.resolveVirtualPath in production; without
+		// resolution every hit looks "outside workingDir" and gets dropped
+		// silently. This is the regression that left search returning zero
+		// hits for every query on the deploy.
+		const r = fixture();
+		const impl: SearchImpl = async () => [
+			fakeHit("qmd://memory/tom.md", { title: "Tom" }),
+			fakeHit("qmd://memory/ghost.md", { title: "Ghost" }), // resolver returns null
+		];
+		const resolve = (fp: string): string | null =>
+			fp === "qmd://memory/tom.md" ? join(r, "memory", "tom.md") : null;
+		const res = await runSearch(impl, r, "tom", resolve);
+		expect(res.ok).toBe(true);
+		if (res.ok) {
+			expect(res.hits.map((h) => h.relPath)).toEqual(["memory/tom.md"]);
+		}
+	});
+
 	it("falls back to relPath as title when qmd title is empty", async () => {
 		const r = fixture();
 		const impl: SearchImpl = async () => [fakeHit(join(r, "MEMORY.md"), { title: "" })];
