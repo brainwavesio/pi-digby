@@ -48,6 +48,7 @@ export class SlackSurface implements AgentSurface {
 	private streaming = true;
 	private resolved = false;
 	private deleted = false;
+	private hasFallenBackToFile = false;
 	private threadMessageTs: string[] = [];
 	private updateChain: Promise<void> = Promise.resolve();
 
@@ -111,28 +112,32 @@ export class SlackSurface implements AgentSurface {
 					await doUpdate(this.truncate(display, 30000));
 				} catch {
 					// Both update attempts failed — upload the full content as a file
-					try {
-						const ts = Date.now();
-						const filename = `response-${ts}.md`;
-						await this.client.uploadContent(
-							this.channel,
-							this.accumulatedText || display,
-							filename,
-							"Response (too long for message)",
-							this.replyThreadTs,
-						);
-						// Update the placeholder message to indicate the file was uploaded
+					if (!this.hasFallenBackToFile) {
+						this.hasFallenBackToFile = true;
 						try {
-							await doUpdate("_Response too long — replying as a file attachment._");
-						} catch {
-							// ignore — placeholder update is best-effort
+							const ts = Date.now();
+							const filename = `response-${ts}.md`;
+							await this.client.uploadContent(
+								this.channel,
+								this.accumulatedText || display,
+								filename,
+								"Response (too long for message)",
+								this.replyThreadTs,
+							);
+							// Update the placeholder message to indicate the file was uploaded
+							try {
+								await doUpdate("_Response too long — replying as a file attachment._");
+							} catch {
+								// ignore — placeholder update is best-effort
+							}
+						} catch (uploadErr) {
+							log.warn(
+								"[slack-surface] file upload fallback failed",
+								uploadErr instanceof Error ? uploadErr.message : String(uploadErr),
+							);
 						}
-					} catch (uploadErr) {
-						log.warn(
-							"[slack-surface] file upload fallback failed",
-							uploadErr instanceof Error ? uploadErr.message : String(uploadErr),
-						);
 					}
+					// else: already uploaded once, skip duplicate
 				}
 			}
 		});
