@@ -37,6 +37,9 @@ function createDuplicateChecker(): DuplicateChecker {
 export function setupRouter(client: SlackClient, handler: RouterHandler, startupTs: string): void {
 	const botUserId = client.getBotUserId();
 	const isDuplicate = createDuplicateChecker();
+	// Tracks threads where the bot was @mentioned in a reply (not necessarily the root).
+	// Key: "channel:thread_ts". In-memory only; repopulated on restart via first @mention.
+	const mentionedThreads = new QuickLRU<string, true>({ maxSize: 500 });
 
 	// ===== Channel @mentions =====
 	client.onAppMention((event) => {
@@ -72,6 +75,12 @@ export function setupRouter(client: SlackClient, handler: RouterHandler, startup
 		if (e.ts < startupTs) {
 			log.info(`[${e.channel}] Skipping old mention (pre-startup)`);
 			return;
+		}
+
+		// Track threads where the bot is @mentioned in a reply so subsequent
+		// messages in that thread trigger the bot without another @mention.
+		if (e.thread_ts) {
+			mentionedThreads.set(`${e.channel}:${e.thread_ts}`, true);
 		}
 
 		processOrBusy(client, handler, slackEvent, e.channel, isDuplicate);
@@ -157,6 +166,12 @@ export function setupRouter(client: SlackClient, handler: RouterHandler, startup
 			const anyMention = /<@[A-Z0-9]+>/i.test(text);
 			if (!botMentioned && anyMention) {
 				handler.logMessage(slackEvent);
+				return;
+			}
+
+			// Fast path: bot was @mentioned in this thread previously — treat as bot-active.
+			if (mentionedThreads.has(`${e.channel}:${e.thread_ts!}`)) {
+				processOrBusy(client, handler, slackEvent, e.channel, isDuplicate);
 				return;
 			}
 
