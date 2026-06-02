@@ -303,6 +303,32 @@ describe("Router", () => {
 			expect(h.handled).toHaveLength(0);
 		});
 
+		it("triggers on subsequent replies after bot is mentioned in a thread reply", async () => {
+			// First: bot is @mentioned in a thread reply → populates mentionedThreads cache
+			mock.simulateMention({
+				text: "<@UBOT123> can you help?",
+				channel: "C_ENG",
+				user: "U_USER",
+				ts: AFTER_STARTUP,
+				thread_ts: "1700000000.500000",
+			});
+			await vi.waitFor(() => expect(h.handled).toHaveLength(1));
+			h.handled.length = 0; // reset for next assertion
+
+			// Subsequent reply in same thread — no @mention, isBotThread returns false
+			mock.mockIsBotThread.mockResolvedValue(false);
+			mock.simulateMessage({
+				text: "follow-up without mention",
+				channel: "C_ENG",
+				user: "U_USER",
+				ts: "1700000002.000000",
+				thread_ts: "1700000000.500000",
+			});
+			// Should trigger via mentionedThreads cache, not isBotThread
+			await vi.waitFor(() => expect(h.handled).toHaveLength(1));
+			expect(mock.mockIsBotThread).not.toHaveBeenCalled();
+		});
+
 		it("logs when another user is mentioned (not bot)", () => {
 			mock.simulateMessage({
 				text: "hey <@UOTHER99> what do you think",
