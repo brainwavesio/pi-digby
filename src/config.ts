@@ -1,12 +1,25 @@
 import { readFileSync, statSync } from "fs";
 import { join } from "path";
 
+export type ReplyBehaviour = "mention" | "channel" | "thread";
+
 export interface DigbyConfig {
+	/**
+	 * Per-channel reply behaviour.
+	 *
+	 * Key: Slack channel/DM ID (e.g. "C0AB3CQSSSZ") or "dm" for all DMs.
+	 * Value:
+	 *   "mention" (default) — only respond to @mentions and bot-owned threads
+	 *   "channel"           — respond to all messages; replies at channel level
+	 *   "thread"            — respond to all messages; replies always in a thread
+	 *
+	 * Legacy array shorthands (deprecated, still supported):
+	 *   processAllMessageChannels → equivalent to "channel" behaviour
+	 */
+	replyBehaviour?: Record<string, ReplyBehaviour>;
+	/** @deprecated Use replyBehaviour instead */
 	slack?: {
-		/** Channel IDs where all messages are processed (not just @mentions). */
 		processAllMessageChannels?: string[];
-		/** Channel IDs where all messages are processed AND replies always go in a thread. */
-		replyInThreadChannels?: string[];
 	};
 	/** Post tool calls/thinking to thread under bot's message (default: false) */
 	debugThreading?: boolean;
@@ -54,12 +67,28 @@ export function loadConfig(): DigbyConfig {
 	return cached!;
 }
 
-export function shouldProcessAllMessages(channelId: string): boolean {
-	return loadConfig().slack?.processAllMessageChannels?.includes(channelId) ?? false;
+export function getReplyBehaviour(channelId: string): ReplyBehaviour {
+	const config = loadConfig();
+
+	// New-style: replyBehaviour map
+	const behaviour = config.replyBehaviour?.[channelId];
+	if (behaviour) return behaviour;
+
+	// Legacy: processAllMessageChannels → "channel"
+	if (config.slack?.processAllMessageChannels?.includes(channelId)) return "channel";
+
+	return "mention";
 }
 
+/** True if the bot should respond to all messages in this channel (not just @mentions) */
+export function shouldProcessAllMessages(channelId: string): boolean {
+	const b = getReplyBehaviour(channelId);
+	return b === "channel" || b === "thread";
+}
+
+/** True if the bot should always reply in a thread (never at channel level) */
 export function shouldReplyInThread(channelId: string): boolean {
-	return loadConfig().slack?.replyInThreadChannels?.includes(channelId) ?? false;
+	return getReplyBehaviour(channelId) === "thread";
 }
 
 export function isDebugThreadingEnabled(): boolean {
