@@ -1,4 +1,5 @@
 import { join } from "path";
+import { shouldReplyInThread } from "../config.js";
 import type { LogContextScope } from "../persistence/log.js";
 import type { SlackEvent } from "./types.js";
 
@@ -16,6 +17,8 @@ function safePathSegment(value: string): string {
 export function slackReplyThreadTs(event: SlackEvent, isEvent = false): string | undefined {
 	if (isEvent) return event.threadTs;
 	if (event.type === "mention") return event.threadTs ?? event.ts;
+	// In replyInThread channels: always thread, using ts as root for top-level messages
+	if (shouldReplyInThread(event.channel)) return event.threadTs ?? event.ts;
 	return event.threadTs;
 }
 

@@ -6,10 +6,12 @@ import type { SlackEvent } from "../src/slack/types.js";
 // Mock config — default: no always-on channels
 vi.mock("../src/config.js", () => ({
 	shouldProcessAllMessages: vi.fn(() => false),
+	shouldReplyInThread: vi.fn(() => false),
 }));
 
-import { shouldProcessAllMessages } from "../src/config.js";
+import { shouldProcessAllMessages, shouldReplyInThread } from "../src/config.js";
 const mockShouldProcess = vi.mocked(shouldProcessAllMessages);
+const mockShouldReplyInThread = vi.mocked(shouldReplyInThread);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -81,6 +83,7 @@ describe("Router", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mockShouldProcess.mockReturnValue(false);
+		mockShouldReplyInThread.mockReturnValue(false);
 		mock = createMockClient();
 		h = createMockHandler();
 		setupRouter(mock.client, h.handler, STARTUP_TS);

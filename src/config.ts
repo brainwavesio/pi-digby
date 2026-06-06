@@ -5,6 +5,8 @@ export interface DigbyConfig {
 	slack?: {
 		/** Channel IDs where all messages are processed (not just @mentions). */
 		processAllMessageChannels?: string[];
+		/** Channel IDs where all messages are processed AND replies always go in a thread. */
+		replyInThreadChannels?: string[];
 	};
 	/** Post tool calls/thinking to thread under bot's message (default: false) */
 	debugThreading?: boolean;
@@ -54,6 +56,10 @@ export function loadConfig(): DigbyConfig {
 
 export function shouldProcessAllMessages(channelId: string): boolean {
 	return loadConfig().slack?.processAllMessageChannels?.includes(channelId) ?? false;
+}
+
+export function shouldReplyInThread(channelId: string): boolean {
+	return loadConfig().slack?.replyInThreadChannels?.includes(channelId) ?? false;
 }
 
 export function isDebugThreadingEnabled(): boolean {

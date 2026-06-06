@@ -1,5 +1,5 @@
 import QuickLRU from "quick-lru";
-import { shouldProcessAllMessages } from "../config.js";
+import { shouldProcessAllMessages, shouldReplyInThread } from "../config.js";
 import * as log from "../log.js";
 import type { SlackClient } from "./client.js";
 import type { SlackEvent } from "./types.js";
@@ -123,7 +123,7 @@ export function setupRouter(client: SlackClient, handler: RouterHandler, startup
 		}
 
 		const isDm = e.channel_type === "im" || e.channel_type === "mpim";
-		const isAlwaysChannel = shouldProcessAllMessages(e.channel);
+		const isAlwaysChannel = shouldProcessAllMessages(e.channel) || shouldReplyInThread(e.channel);
 		const isChannelThread = !isDm && !!e.thread_ts;
 
 		// At this point e.user must exist: bot messages (bot_id) already returned,
