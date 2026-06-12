@@ -22,7 +22,7 @@ describe("getReplyBehaviour", () => {
 	});
 
 	it("returns 'mention' for unknown channels", () => {
-		mockConfig({ replyBehaviour: {} });
+		mockConfig({ slack: { replyBehaviour: {} } });
 		expect(getReplyBehaviour("C_UNKNOWN")).toBe("mention");
 	});
 
@@ -32,17 +32,17 @@ describe("getReplyBehaviour", () => {
 	});
 
 	it("returns 'channel' for a channel mapped to channel", () => {
-		mockConfig({ replyBehaviour: { C_ONE: "channel" } });
+		mockConfig({ slack: { replyBehaviour: { C_ONE: "channel" } } });
 		expect(getReplyBehaviour("C_ONE")).toBe("channel");
 	});
 
 	it("returns 'thread' for a channel mapped to thread", () => {
-		mockConfig({ replyBehaviour: { C_TWO: "thread" } });
+		mockConfig({ slack: { replyBehaviour: { C_TWO: "thread" } } });
 		expect(getReplyBehaviour("C_TWO")).toBe("thread");
 	});
 
 	it("returns 'mention' for a channel mapped to mention", () => {
-		mockConfig({ replyBehaviour: { C_THREE: "mention" } });
+		mockConfig({ slack: { replyBehaviour: { C_THREE: "mention" } } });
 		expect(getReplyBehaviour("C_THREE")).toBe("mention");
 	});
 });
@@ -59,17 +59,17 @@ describe("shouldProcessAllMessages", () => {
 	});
 
 	it("returns false for 'mention' channels", () => {
-		mockConfig({ replyBehaviour: { C_ONE: "mention" } });
+		mockConfig({ slack: { replyBehaviour: { C_ONE: "mention" } } });
 		expect(shouldProcessAllMessages("C_ONE")).toBe(false);
 	});
 
 	it("returns true for 'channel' channels", () => {
-		mockConfig({ replyBehaviour: { C_ONE: "channel" } });
+		mockConfig({ slack: { replyBehaviour: { C_ONE: "channel" } } });
 		expect(shouldProcessAllMessages("C_ONE")).toBe(true);
 	});
 
 	it("returns true for 'thread' channels", () => {
-		mockConfig({ replyBehaviour: { C_ONE: "thread" } });
+		mockConfig({ slack: { replyBehaviour: { C_ONE: "thread" } } });
 		expect(shouldProcessAllMessages("C_ONE")).toBe(true);
 	});
 });
@@ -86,17 +86,17 @@ describe("shouldReplyInThread", () => {
 	});
 
 	it("returns false for 'mention' channels", () => {
-		mockConfig({ replyBehaviour: { C_ONE: "mention" } });
+		mockConfig({ slack: { replyBehaviour: { C_ONE: "mention" } } });
 		expect(shouldReplyInThread("C_ONE")).toBe(false);
 	});
 
 	it("returns false for 'channel' channels", () => {
-		mockConfig({ replyBehaviour: { C_ONE: "channel" } });
+		mockConfig({ slack: { replyBehaviour: { C_ONE: "channel" } } });
 		expect(shouldReplyInThread("C_ONE")).toBe(false);
 	});
 
 	it("returns true for 'thread' channels", () => {
-		mockConfig({ replyBehaviour: { C_ONE: "thread" } });
+		mockConfig({ slack: { replyBehaviour: { C_ONE: "thread" } } });
 		expect(shouldReplyInThread("C_ONE")).toBe(true);
 	});
 });

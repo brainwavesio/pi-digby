@@ -2,13 +2,15 @@ import { readFileSync, statSync } from "fs";
 import { join } from "path";
 
 export interface DigbyConfig {
-	/**
-	 * Per-channel reply behaviour.
-	 * - "mention"  (default) — only respond to @mentions and bot-owned threads
-	 * - "channel"  — process all messages, reply at channel level
-	 * - "thread"   — process all messages, always reply in a thread
-	 */
-	replyBehaviour?: Record<string, "mention" | "channel" | "thread">;
+	slack?: {
+		/**
+		 * Per-channel reply behaviour.
+		 * - "mention"  (default) — only respond to @mentions and bot-owned threads
+		 * - "channel"  — process all messages, reply at channel level
+		 * - "thread"   — process all messages, always reply in a thread
+		 */
+		replyBehaviour?: Record<string, "mention" | "channel" | "thread">;
+	};
 	/** Post tool calls/thinking to thread under bot's message (default: false) */
 	debugThreading?: boolean;
 	/** Maximum time (seconds) a single run can take before being aborted (default: 600) */
@@ -56,7 +58,7 @@ export function loadConfig(): DigbyConfig {
 }
 
 export function getReplyBehaviour(channelId: string): "mention" | "channel" | "thread" {
-	return loadConfig().replyBehaviour?.[channelId] ?? "mention";
+	return loadConfig().slack?.replyBehaviour?.[channelId] ?? "mention";
 }
 
 export function shouldProcessAllMessages(channelId: string): boolean {
