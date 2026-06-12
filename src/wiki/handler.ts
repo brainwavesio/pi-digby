@@ -25,11 +25,25 @@ import {
 } from "./auth.js";
 import { extractFrontmatter, renderFrontmatter } from "./frontmatter.js";
 import { listDirectory, renderListingBody, renderRootListing } from "./listing.js";
+import { contentTypeFor } from "./mime.js";
 import { createRenderer, inferLang, type Renderer } from "./render.js";
 import { createWikiSearch, type SearchHit, type SearchResult, type WikiSearch } from "./search.js";
 import { buildCrumbs, escapeHtml, renderLoginPage, renderMissingBody, renderShell } from "./template.js";
 
 const RENDER_MAX_BYTES = 5 * 1024 * 1024; // 5 MB cap on rendered text
+
+/**
+ * CSP for wiki HTML pages. The wiki template loads a single external
+ * stylesheet from /public/ (same origin) and has no inline scripts, so we
+ * can lock scripts out entirely and restrict styles to 'self'.
+ *
+ * `base-uri 'self'` prevents injected <base> tags from hijacking relative URLs.
+ * `form-action 'self'` limits form submissions to the same origin (the search
+ * form is the only form on the wiki).
+ */
+const WIKI_CSP =
+	"default-src 'none'; style-src 'self'; img-src 'self' data:; font-src 'self'; " +
+	"script-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
 const RAW_MAX_BYTES = 25 * 1024 * 1024; // 25 MB cap on raw bytes (images)
 
 /**
@@ -172,28 +186,6 @@ async function streamFile(abs: string, res: ServerResponse): Promise<void> {
 	}
 }
 
-function contentTypeFor(ext: string): string {
-	switch (ext) {
-		case ".css":
-			return "text/css; charset=utf-8";
-		case ".js":
-			return "application/javascript; charset=utf-8";
-		case ".svg":
-			return "image/svg+xml";
-		case ".png":
-			return "image/png";
-		case ".jpg":
-		case ".jpeg":
-			return "image/jpeg";
-		case ".woff":
-			return "font/woff";
-		case ".woff2":
-			return "font/woff2";
-		default:
-			return "application/octet-stream";
-	}
-}
-
 // ---------------------------------------------------------------------------
 // /auth/*
 // ---------------------------------------------------------------------------
@@ -288,6 +280,7 @@ function loginPage(opts: WikiHandlerOptions, returnTo: string, res: ServerRespon
 	const html = renderLoginPage(href);
 	res.writeHead(status, {
 		"Content-Type": "text/html; charset=utf-8",
+		"Content-Security-Policy": WIKI_CSP,
 		"Cache-Control": "no-store",
 		"X-Robots-Tag": "noindex, nofollow",
 	});
@@ -445,6 +438,7 @@ async function handleWiki(
 
 	res.writeHead(200, {
 		"Content-Type": "text/html; charset=utf-8",
+		"Content-Security-Policy": WIKI_CSP,
 		"Cache-Control": "private, max-age=60",
 		"Set-Cookie": slide,
 		"X-Robots-Tag": "noindex, nofollow",
@@ -474,6 +468,7 @@ function serveDirectory(
 	});
 	res.writeHead(200, {
 		"Content-Type": "text/html; charset=utf-8",
+		"Content-Security-Policy": WIKI_CSP,
 		"Cache-Control": "private, max-age=60",
 		"Set-Cookie": slideCookie,
 		"X-Robots-Tag": "noindex, nofollow",
@@ -490,6 +485,7 @@ function wikiNotFound(opts: WikiHandlerOptions, slideCookie: string, decodedPath
 	});
 	res.writeHead(404, {
 		"Content-Type": "text/html; charset=utf-8",
+		"Content-Security-Policy": WIKI_CSP,
 		"Cache-Control": "no-store",
 		"Set-Cookie": slideCookie,
 		"X-Robots-Tag": "noindex, nofollow",
@@ -525,6 +521,7 @@ async function handleSearch(
 	});
 	res.writeHead(200, {
 		"Content-Type": "text/html; charset=utf-8",
+		"Content-Security-Policy": WIKI_CSP,
 		"Cache-Control": "no-store",
 		"Set-Cookie": slideCookie,
 		"X-Robots-Tag": "noindex, nofollow",
@@ -635,7 +632,7 @@ function channelLabelOverrides(
 function sanitizeReturnTo(r: string | null): string {
 	if (!r) return "/w/";
 	if (r.includes("\\") || /[\x00-\x1f\x7f]/.test(r)) return "/w/";
-	if (r !== "/w" && !r.startsWith("/w/")) return "/w/";
+	if (r !== "/w" && !r.startsWith("/w/") && r !== "/r" && !r.startsWith("/r/")) return "/w/";
 	return r;
 }
 
