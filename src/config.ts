@@ -2,12 +2,13 @@ import { readFileSync, statSync } from "fs";
 import { join } from "path";
 
 export interface DigbyConfig {
-	slack?: {
-		/** Channel IDs where all messages are processed (not just @mentions). */
-		processAllMessageChannels?: string[];
-		/** Channel IDs where all messages are processed AND replies always go in a thread. */
-		replyInThreadChannels?: string[];
-	};
+	/**
+	 * Per-channel reply behaviour.
+	 * - "mention"  (default) — only respond to @mentions and bot-owned threads
+	 * - "channel"  — process all messages, reply at channel level
+	 * - "thread"   — process all messages, always reply in a thread
+	 */
+	replyBehaviour?: Record<string, "mention" | "channel" | "thread">;
 	/** Post tool calls/thinking to thread under bot's message (default: false) */
 	debugThreading?: boolean;
 	/** Maximum time (seconds) a single run can take before being aborted (default: 600) */
@@ -54,12 +55,17 @@ export function loadConfig(): DigbyConfig {
 	return cached!;
 }
 
+export function getReplyBehaviour(channelId: string): "mention" | "channel" | "thread" {
+	return loadConfig().replyBehaviour?.[channelId] ?? "mention";
+}
+
 export function shouldProcessAllMessages(channelId: string): boolean {
-	return loadConfig().slack?.processAllMessageChannels?.includes(channelId) ?? false;
+	const b = getReplyBehaviour(channelId);
+	return b === "channel" || b === "thread";
 }
 
 export function shouldReplyInThread(channelId: string): boolean {
-	return loadConfig().slack?.replyInThreadChannels?.includes(channelId) ?? false;
+	return getReplyBehaviour(channelId) === "thread";
 }
 
 export function isDebugThreadingEnabled(): boolean {
