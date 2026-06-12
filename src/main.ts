@@ -399,6 +399,20 @@ if (DIGBY_COOKIE_SECRET && DIGBY_SLACK_CLIENT_ID && DIGBY_SLACK_CLIENT_SECRET &&
 	httpServer.registerGetPrefix("/auth/", wikiHandler);
 	httpServer.registerGetPrefix("/w", wikiHandler);
 	log.info("Wiki enabled at /w/");
+
+	const { createRawHandler } = await import("./wiki/raw-handler.js");
+	const rawHandler = await createRawHandler({
+		workingDir,
+		cookieSecret: DIGBY_COOKIE_SECRET,
+		slack: {
+			clientId: DIGBY_SLACK_CLIENT_ID,
+			clientSecret: DIGBY_SLACK_CLIENT_SECRET,
+			teamId: DIGBY_SLACK_TEAM_ID,
+			redirectUri: `${DIGBY_WIKI_BASE_URL}/auth/slack/callback`,
+		},
+	});
+	httpServer.registerGetPrefix("/r", rawHandler);
+	log.info("Raw file endpoint enabled at /r/");
 } else {
 	log.info("Wiki disabled — DIGBY_COOKIE_SECRET / DIGBY_SLACK_* env not set");
 }

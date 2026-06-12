@@ -25,6 +25,7 @@ import {
 } from "./auth.js";
 import { extractFrontmatter, renderFrontmatter } from "./frontmatter.js";
 import { listDirectory, renderListingBody, renderRootListing } from "./listing.js";
+import { contentTypeFor } from "./mime.js";
 import { createRenderer, inferLang, type Renderer } from "./render.js";
 import { createWikiSearch, type SearchHit, type SearchResult, type WikiSearch } from "./search.js";
 import { buildCrumbs, escapeHtml, renderLoginPage, renderMissingBody, renderShell } from "./template.js";
@@ -169,28 +170,6 @@ async function streamFile(abs: string, res: ServerResponse): Promise<void> {
 	} catch (err) {
 		log.warn(`[wiki] stream error on ${abs}`, err instanceof Error ? err.message : String(err));
 		if (!res.writableEnded) res.end();
-	}
-}
-
-function contentTypeFor(ext: string): string {
-	switch (ext) {
-		case ".css":
-			return "text/css; charset=utf-8";
-		case ".js":
-			return "application/javascript; charset=utf-8";
-		case ".svg":
-			return "image/svg+xml";
-		case ".png":
-			return "image/png";
-		case ".jpg":
-		case ".jpeg":
-			return "image/jpeg";
-		case ".woff":
-			return "font/woff";
-		case ".woff2":
-			return "font/woff2";
-		default:
-			return "application/octet-stream";
 	}
 }
 
@@ -635,7 +614,7 @@ function channelLabelOverrides(
 function sanitizeReturnTo(r: string | null): string {
 	if (!r) return "/w/";
 	if (r.includes("\\") || /[\x00-\x1f\x7f]/.test(r)) return "/w/";
-	if (r !== "/w" && !r.startsWith("/w/")) return "/w/";
+	if (r !== "/w" && !r.startsWith("/w/") && r !== "/r" && !r.startsWith("/r/")) return "/w/";
 	return r;
 }
 
