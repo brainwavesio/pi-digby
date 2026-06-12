@@ -51,50 +51,32 @@ function makeReq(
 	};
 }
 
-function makeRes(): {
-	statusCode: number;
-	headers: Record<string, string | number | string[]>;
-	body: string;
-	headersSent: boolean;
-	writableEnded: boolean;
-	writeHead: (s: number, h: Record<string, string | number | string[]>) => unknown;
-	write: (chunk: unknown) => boolean;
-	end: (b?: string) => unknown;
-	on: (event: string, fn: unknown) => unknown;
-	once: (event: string, fn: unknown) => unknown;
-	setHeader: (n: string, v: string) => unknown;
-} {
-	const res = {
+function makeRes() {
+	// Use a PassThrough so stream/promises.pipeline can write to it and receive
+	// the 'finish' event — a plain EventEmitter stub causes pipeline to hang.
+	const { PassThrough } = require("stream");
+	const stream = new PassThrough();
+	const chunks: Buffer[] = [];
+	stream.on("data", (c: Buffer) => chunks.push(c));
+
+	const res = Object.assign(stream, {
 		statusCode: 0,
 		headers: {} as Record<string, string | number | string[]>,
-		body: "",
+		get body() {
+			return Buffer.concat(chunks).toString();
+		},
 		headersSent: false,
-		writableEnded: false,
 		writeHead(s: number, h: Record<string, string | number | string[]>) {
 			res.statusCode = s;
 			Object.assign(res.headers, h);
 			res.headersSent = true;
 			return res;
 		},
-		write(_chunk: unknown) {
-			return true;
-		},
-		end(b = "") {
-			if (typeof b === "string") res.body = b;
-			res.writableEnded = true;
-			return res;
-		},
-		on(_event: string, _fn: unknown) {
-			return res;
-		},
-		once(_event: string, _fn: unknown) {
-			return res;
-		},
 		setHeader(n: string, v: string) {
 			res.headers[n] = v;
 			return res;
 		},
-	};
+	});
 	return res;
 }
 
@@ -221,34 +203,24 @@ describe("authenticated requests — non-existent file → 404", () => {
 });
 
 describe("file size cap", () => {
-	it("returns 404 for a file larger than 50 MB (mocked stat)", async () => {
-		const { statSync } = await import("fs");
-		vi.spyOn({ statSync }, "statSync").mockImplementation(() => {
-			throw new Error("not used");
-		});
-
-		// Use vi.mock on fs.statSync directly
-		const fsMod = await import("fs");
-		const origStat = fsMod.statSync;
-		// biome-ignore lint/suspicious/noExplicitAny: mock override
-		(fsMod as any).statSync = (p: string) => {
-			const real = origStat(p);
-			// Fake oversized file for our test file
-			if (p.includes("readme.md")) {
-				return { ...real, size: 51 * 1024 * 1024, isFile: () => true, isDirectory: () => false };
-			}
-			return real;
-		};
+	it("returns 404 for a file larger than 50 MB (sparse file)", async () => {
+		// Create a sparse file that reports > 50 MB on stat without actually
+		// consuming disk space. truncate() sets the file size via the OS
+		// without writing data — stat.size will be 51 MB, isFile() is true.
+		const { openSync, ftruncateSync, closeSync } = await import("fs");
+		const bigPath = join(root, "big.bin");
+		const fd = openSync(bigPath, "w");
+		ftruncateSync(fd, 51 * 1024 * 1024);
+		closeSync(fd);
 
 		try {
 			const cookie = validCookie();
-			const req = makeReq("/r/docs/readme.md", cookie);
+			const req = makeReq("/r/big.bin", cookie);
 			const res = makeRes();
 			await handler(req, res);
 			expect(res.statusCode).toBe(404);
 		} finally {
-			// biome-ignore lint/suspicious/noExplicitAny: restore mock
-			(fsMod as any).statSync = origStat;
+			rmSync(bigPath, { force: true });
 		}
 	});
 });
