@@ -67,3 +67,34 @@ export function contentTypeFor(ext: string): string {
 export function needsAttachment(ext: string): boolean {
 	return contentTypeFor(ext) === "application/octet-stream";
 }
+
+/**
+ * True for file types that can execute active content (scripts, styles,
+ * XML with XSLT, etc.) when rendered inline under the authenticated origin.
+ *
+ * The raw endpoint serves these with `Content-Security-Policy: sandbox`
+ * to isolate them from the parent origin — cookies, localStorage, and
+ * same-origin requests are all blocked inside the sandbox.
+ *
+ * `.html`/`.htm` get `sandbox allow-scripts allow-forms` so prototype pages
+ * work (scripts run, forms submit) but the page cannot reach the auth cookie
+ * or make credentialed requests back to the origin.
+ *
+ * `.svg`, `.xml`, `.js`/`.mjs`, `.css` get bare `sandbox` (no scripts) since
+ * allowing scripts in those types would be unusual and unnecessary.
+ */
+export function scriptCapableCsp(ext: string): string | null {
+	switch (ext) {
+		case ".html":
+		case ".htm":
+			return "sandbox allow-scripts allow-forms allow-popups allow-modals";
+		case ".svg":
+		case ".xml":
+		case ".js":
+		case ".mjs":
+		case ".css":
+			return "sandbox";
+		default:
+			return null;
+	}
+}

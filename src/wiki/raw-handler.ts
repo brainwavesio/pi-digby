@@ -20,7 +20,7 @@ import {
 	verifyCookie,
 	verifyState,
 } from "./auth.js";
-import { contentTypeFor, needsAttachment } from "./mime.js";
+import { contentTypeFor, needsAttachment, scriptCapableCsp } from "./mime.js";
 
 const RAW_MAX_BYTES = 50 * 1024 * 1024; // 50 MB hard cap
 
@@ -216,6 +216,10 @@ async function handleRaw(opts: RawHandlerOptions, url: URL, req: IncomingMessage
 	};
 	if (needsAttachment(ext)) {
 		headers["Content-Disposition"] = "attachment";
+	}
+	const csp = scriptCapableCsp(ext);
+	if (csp) {
+		headers["Content-Security-Policy"] = csp;
 	}
 
 	res.writeHead(200, headers);
