@@ -40,10 +40,15 @@ export class HttpServer {
 		const server = createServer(async (req, res) => {
 			const path = req.url?.split("?")[0] || "/";
 
-			// Defence in depth: no Digby surface should be indexed by crawlers.
-			// Set the header before any handler runs so every response carries it
-			// (including 404s, redirects, raw images, and webhook 405s).
+			// Defence in depth: security + anti-crawl headers on every response,
+			// set before any handler runs so nothing slips through.
 			res.setHeader("X-Robots-Tag", "noindex, nofollow");
+			// Prevent MIME-sniffing attacks (browsers must respect Content-Type).
+			res.setHeader("X-Content-Type-Options", "nosniff");
+			// Deny framing entirely — no reason any Digby page should be embedded.
+			res.setHeader("X-Frame-Options", "DENY");
+			// Don't leak URL paths in Referer headers to external resources.
+			res.setHeader("Referrer-Policy", "no-referrer");
 
 			// Explicit robots.txt for crawlers that don't read headers.
 			if (req.method === "GET" && path === "/robots.txt") {

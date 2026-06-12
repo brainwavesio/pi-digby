@@ -31,6 +31,19 @@ import { createWikiSearch, type SearchHit, type SearchResult, type WikiSearch } 
 import { buildCrumbs, escapeHtml, renderLoginPage, renderMissingBody, renderShell } from "./template.js";
 
 const RENDER_MAX_BYTES = 5 * 1024 * 1024; // 5 MB cap on rendered text
+
+/**
+ * CSP for wiki HTML pages. The wiki template loads a single external
+ * stylesheet from /public/ (same origin) and has no inline scripts, so we
+ * can lock scripts out entirely and restrict styles to 'self'.
+ *
+ * `base-uri 'self'` prevents injected <base> tags from hijacking relative URLs.
+ * `form-action 'self'` limits form submissions to the same origin (the search
+ * form is the only form on the wiki).
+ */
+const WIKI_CSP =
+	"default-src 'none'; style-src 'self'; img-src 'self' data:; font-src 'self'; " +
+	"script-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
 const RAW_MAX_BYTES = 25 * 1024 * 1024; // 25 MB cap on raw bytes (images)
 
 /**
@@ -267,6 +280,7 @@ function loginPage(opts: WikiHandlerOptions, returnTo: string, res: ServerRespon
 	const html = renderLoginPage(href);
 	res.writeHead(status, {
 		"Content-Type": "text/html; charset=utf-8",
+		"Content-Security-Policy": WIKI_CSP,
 		"Cache-Control": "no-store",
 		"X-Robots-Tag": "noindex, nofollow",
 	});
@@ -424,6 +438,7 @@ async function handleWiki(
 
 	res.writeHead(200, {
 		"Content-Type": "text/html; charset=utf-8",
+		"Content-Security-Policy": WIKI_CSP,
 		"Cache-Control": "private, max-age=60",
 		"Set-Cookie": slide,
 		"X-Robots-Tag": "noindex, nofollow",
@@ -453,6 +468,7 @@ function serveDirectory(
 	});
 	res.writeHead(200, {
 		"Content-Type": "text/html; charset=utf-8",
+		"Content-Security-Policy": WIKI_CSP,
 		"Cache-Control": "private, max-age=60",
 		"Set-Cookie": slideCookie,
 		"X-Robots-Tag": "noindex, nofollow",
@@ -469,6 +485,7 @@ function wikiNotFound(opts: WikiHandlerOptions, slideCookie: string, decodedPath
 	});
 	res.writeHead(404, {
 		"Content-Type": "text/html; charset=utf-8",
+		"Content-Security-Policy": WIKI_CSP,
 		"Cache-Control": "no-store",
 		"Set-Cookie": slideCookie,
 		"X-Robots-Tag": "noindex, nofollow",
@@ -504,6 +521,7 @@ async function handleSearch(
 	});
 	res.writeHead(200, {
 		"Content-Type": "text/html; charset=utf-8",
+		"Content-Security-Policy": WIKI_CSP,
 		"Cache-Control": "no-store",
 		"Set-Cookie": slideCookie,
 		"X-Robots-Tag": "noindex, nofollow",
