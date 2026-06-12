@@ -76,18 +76,21 @@ export function needsAttachment(ext: string): boolean {
  * to isolate them from the parent origin — cookies, localStorage, and
  * same-origin requests are all blocked inside the sandbox.
  *
- * `.html`/`.htm` get `sandbox allow-scripts allow-forms` so prototype pages
- * work (scripts run, forms submit) but the page cannot reach the auth cookie
- * or make credentialed requests back to the origin.
+ * `.html`/`.htm` get `sandbox allow-scripts allow-forms allow-same-origin`
+ * so prototype pages work correctly: scripts run, forms submit, and — crucially
+ * — subresource requests (CSS, JS, images) carry the auth cookie so they are
+ * not 302-redirected to the login flow. `allow-same-origin` is safe here
+ * because all content behind `/r/` is already behind Slack OAuth, so we are
+ * serving trusted internal files only.
  *
- * `.svg`, `.xml`, `.js`/`.mjs`, `.css` get bare `sandbox` (no scripts) since
- * allowing scripts in those types would be unusual and unnecessary.
+ * `.svg`, `.xml`, `.js`/`.mjs`, `.css` get bare `sandbox` (no scripts, no
+ * same-origin) since these are leaf assets, not top-level pages.
  */
 export function scriptCapableCsp(ext: string): string | null {
 	switch (ext) {
 		case ".html":
 		case ".htm":
-			return "sandbox allow-scripts allow-forms allow-popups allow-modals";
+			return "sandbox allow-scripts allow-forms allow-popups allow-modals allow-same-origin";
 		case ".svg":
 		case ".xml":
 		case ".js":
