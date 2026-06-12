@@ -193,8 +193,31 @@ async function handleRaw(opts: RawHandlerOptions, url: URL, req: IncomingMessage
 		return;
 	}
 
-	// Directories → 404 (file-only endpoint)
-	if (!stat.isFile()) {
+	// Directories → try index.html then index.htm, else 404
+	let resolvedAbsPath = resolved.absPath;
+	if (stat.isDirectory()) {
+		const indexCandidates = ["index.html", "index.htm"];
+		let indexPath: string | null = null;
+		for (const candidate of indexCandidates) {
+			const candidateResolved = resolveSafe(opts.workingDir, `${decodedPath.replace(/\/$/, "")}/${candidate}`);
+			if (!candidateResolved.ok) continue;
+			try {
+				const s = statSync(candidateResolved.absPath);
+				if (s.isFile()) {
+					indexPath = candidateResolved.absPath;
+					stat = s;
+					break;
+				}
+			} catch {
+				// not found, try next
+			}
+		}
+		if (!indexPath) {
+			rawNotFound(res, slide);
+			return;
+		}
+		resolvedAbsPath = indexPath;
+	} else if (!stat.isFile()) {
 		rawNotFound(res, slide);
 		return;
 	}
@@ -205,7 +228,7 @@ async function handleRaw(opts: RawHandlerOptions, url: URL, req: IncomingMessage
 		return;
 	}
 
-	const ext = extname(resolved.absPath).toLowerCase();
+	const ext = extname(resolvedAbsPath).toLowerCase();
 	const ct = contentTypeFor(ext);
 	const headers: Record<string, string | number> = {
 		"Content-Type": ct,
@@ -223,7 +246,7 @@ async function handleRaw(opts: RawHandlerOptions, url: URL, req: IncomingMessage
 	}
 
 	res.writeHead(200, headers);
-	await streamFile(resolved.absPath, res);
+	await streamFile(resolvedAbsPath, res);
 }
 
 // ---------------------------------------------------------------------------
