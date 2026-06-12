@@ -109,10 +109,10 @@ export class SlackClient {
 	// ==========================================================================
 
 	async postMessage(channel: string, text: string, threadTs?: string): Promise<string> {
-		const result = await withRetry(
+		const result = (await withRetry(
 			() => this.web.chat.postMessage({ channel, text, ...(threadTs && { thread_ts: threadTs }) }),
 			"postMessage",
-		);
+		)) as { ts?: string };
 		const ts = result.ts as string;
 		// Mark root messages as bot-owned for thread routing
 		if (!threadTs && ts) {
@@ -414,7 +414,10 @@ export class SlackClient {
 		// DMs
 		cursor = undefined;
 		do {
-			const result = await this.web.conversations.list({ types: "im", limit: 200, cursor });
+			const result: {
+				channels?: Array<{ id?: string; user?: string }>;
+				response_metadata?: { next_cursor?: string };
+			} = await this.web.conversations.list({ types: "im", limit: 200, cursor });
 			const ims = result.channels as Array<{ id?: string; user?: string }> | undefined;
 			if (ims) {
 				for (const im of ims) {
