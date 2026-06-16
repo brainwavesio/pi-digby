@@ -19,7 +19,7 @@ export interface DigbyConfig {
 
 // Hot-reload: re-read digby.json at most every 2 minutes, or when mtime changes.
 const CACHE_TTL_MS = 2 * 60 * 1000;
-const DEFAULT_RUN_TIMEOUT_S = 1200;
+const DEFAULT_RUN_TIMEOUT_S = 300;
 
 let cached: DigbyConfig | null = null;
 let configDir: string | null = null;
