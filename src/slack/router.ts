@@ -4,6 +4,13 @@ import * as log from "../log.js";
 import type { SlackClient } from "./client.js";
 import type { SlackEvent } from "./types.js";
 
+const DEFAULT_SUGGESTED_PROMPTS = [
+	{ title: "Linear cycle report", message: "Give me a summary of the current Linear cycle" },
+	{ title: "Recent errors", message: "Any new errors in #errors in the last 24h?" },
+	{ title: "Morning digest", message: "What's new since yesterday?" },
+	{ title: "Draft a ticket", message: "Create a Linear ticket for: " },
+];
+
 export interface RouterHandler {
 	/** Check if this event's conversation lane is currently busy (SYNC) */
 	isBusy(event: SlackEvent): boolean;
@@ -40,6 +47,18 @@ export function setupRouter(client: SlackClient, handler: RouterHandler, startup
 	// Tracks threads where the bot was @mentioned in a reply (not necessarily the root).
 	// Key: "channel:thread_ts". In-memory only; repopulated on restart via first @mention.
 	const mentionedThreads = new QuickLRU<string, true>({ maxSize: 500 });
+
+	// ===== Suggested prompts on thread open =====
+	client.onAssistantThreadStarted((event) => {
+		const e = event as { assistant_thread?: { channel_id?: string; thread_ts?: string } };
+		const channel = e.assistant_thread?.channel_id;
+		const threadTs = e.assistant_thread?.thread_ts;
+		if (!channel || !threadTs) return;
+
+		client.setSuggestedPrompts(channel, threadTs, "What can I help with?", DEFAULT_SUGGESTED_PROMPTS).catch((err) => {
+			log.warn("Failed to set suggested prompts", err instanceof Error ? err.message : String(err));
+		});
+	});
 
 	// ===== Channel @mentions =====
 	client.onAppMention((event) => {

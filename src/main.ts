@@ -193,7 +193,16 @@ async function runSlackEvent(
 	const stats = createRunStats();
 
 	// Create surface — guaranteed to resolve via finally
-	const ctx = new SlackSurface(client, event.channel, stats, conversation.replyThreadTs);
+	// setTitle callback: only for DM/thread contexts (replyThreadTs required by Slack)
+	const titleTs = conversation.replyThreadTs;
+	const onFirstResponse = titleTs
+		? () => {
+				client.setTitle(event.channel, titleTs, event.text.slice(0, 50)).catch((err) => {
+					log.warn("[main] setTitle error", err instanceof Error ? err.message : String(err));
+				});
+			}
+		: undefined;
+	const ctx = new SlackSurface(client, event.channel, stats, conversation.replyThreadTs, onFirstResponse);
 
 	try {
 		const userName =

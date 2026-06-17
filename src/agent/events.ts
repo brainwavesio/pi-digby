@@ -121,7 +121,7 @@ export function createEventHandler(
 			});
 
 			log.toolStart(channelId, e.toolName, label);
-			ctx.emitProgress(`*\u2192 ${label}*`);
+			ctx.emitToolStart(e.toolCallId, e.toolName, label);
 		} else if (event.type === "tool_execution_end") {
 			const e = event as any;
 			const resultStr = extractToolResultText(e.result);
@@ -132,6 +132,8 @@ export function createEventHandler(
 			stats.stepCount++;
 
 			log.toolEnd(channelId, e.toolName, durationMs, e.isError, resultStr);
+
+			ctx.emitToolEnd(e.toolCallId, durationMs, e.isError);
 
 			// Post detailed args + result to debug thread
 			if (debugThreading) {
@@ -146,10 +148,6 @@ export function createEventHandler(
 				if (argsFormatted) threadMessage += `\`\`\`\n${argsFormatted}\n\`\`\`\n`;
 				threadMessage += `**Result:**\n\`\`\`\n${truncate(resultStr, 3000)}\n\`\`\``;
 				ctx.emitDetail(threadMessage);
-			}
-
-			if (e.isError) {
-				ctx.emitProgress(`*Error: ${truncate(resultStr, 200)}*`);
 			}
 		} else if (event.type === "message_end") {
 			const e = event as any;
@@ -200,7 +198,6 @@ export function createEventHandler(
 			}
 		} else if (event.type === "compaction_start") {
 			log.info(`[${channelId}] Compaction started (reason: ${event.reason})`);
-			ctx.emitProgress("*Compacting context...*");
 		} else if (event.type === "compaction_end") {
 			if (event.result) {
 				log.info(`[${channelId}] Compaction complete: ${event.result.tokensBefore} tokens compacted`);
@@ -209,11 +206,9 @@ export function createEventHandler(
 			}
 		} else if (event.type === "auto_retry_start") {
 			log.warn(`[${channelId}] Retrying (${event.attempt}/${event.maxAttempts}): ${event.errorMessage}`);
-			ctx.emitProgress(`*Retrying (${event.attempt}/${event.maxAttempts})...*`);
 		} else if (event.type === "auto_retry_end") {
 			if (!event.success) {
 				log.warn(`[${channelId}] Retries exhausted: ${event.finalError}`);
-				ctx.emitProgress("*Retries exhausted*");
 			}
 		}
 	};
