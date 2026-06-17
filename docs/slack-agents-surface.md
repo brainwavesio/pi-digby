@@ -1,92 +1,184 @@
 # Slack Agents Interaction Surface
 
 **Branch:** `feat/slack-agents-surface`  
-**Status:** Design / RFC  
+**Status:** Implementation in progress  
 **Author:** Digby  
-**Date:** 2026-06-17
+**Date:** 2026-06-17  
+**Decisions locked:** 2026-06-17 (by Tom)
 
 ---
 
 ## Summary
 
-Implement Slack's first-class [Agents & AI Apps](https://docs.slack.dev/ai/agent-entry-and-interaction) features in pi-digby, starting with the interaction improvements that work today without any scope changes, and extending into the full agent container once the `assistant:write` scope is added.
+Implement Slack's first-class [Agents & AI Apps](https://docs.slack.dev/ai/agent-entry-and-interaction) features in pi-digby. Full cut-over — all phases ship together on this branch, no backward compat shim needed.
 
-The primary user-facing wins are:
-1. **Native loading indicator** (`assistant.threads.setStatus`) — shows "_Digby is thinking..._" in the thread header instead of a placeholder chat message
-2. **Proper completion notifications** — users get a real Slack notification when the answer arrives, not just when the thinking placeholder is posted
-3. **Block Kit task cards** — structured, visually-scannable tool step tracking instead of flat `→ tool-name` text
-4. **Suggested prompts** (requires `assistant:write` scope) — context-aware tap-to-use prompts when a thread opens
-5. **Thread titles** (requires `assistant:write` scope) — thread is labelled by its first message in the History tab
+The three changes land as one:
+1. **`setStatus`** — native "_Digby is thinking..._" loading indicator in thread/DM header
+2. **Block Kit task cards** — structured, visually-scannable tool step tracking
+3. **`setSuggestedPrompts` + `setTitle`** — context-aware prompts and auto-titled threads (scope assumed present)
 
 ---
 
-## Background
+## Decisions (locked)
 
-Currently `SlackSurface` works entirely through chat message updates:
-
-1. `emitThinking()` → posts `"🤔 _Thinking_"` as a new message
-2. `emitProgress(text)` → overwrites that message with accumulated `→ tool-name` lines
-3. `emitResponse(text)` → overwrites again with the final answer
-4. `resolve()` → one final update to add cost footer
-
-Problems:
-- Slack only notifies on _new_ messages, not updates. So users are notified when the "Thinking" placeholder appears, but _not_ when the actual answer arrives.
-- Tool steps are flat text — hard to scan, no visual hierarchy, no done/in-progress state.
-- No use of Slack's native AI loading indicator (the animated "is thinking..." thread header), which is what users expect from AI apps.
-
----
-
-## SDK & Scope Status
-
-`@slack/web-api ^7.0.0` already exposes:
-```
-client.assistant.threads.setStatus(...)
-client.assistant.threads.setSuggestedPrompts(...)
-client.assistant.threads.setTitle(...)
-```
-No package upgrade needed.
-
-| Feature | Scope needed | We have it? |
+| # | Question | Decision |
 |---|---|---|
-| `setStatus` | `chat:write` | Yes |
-| `setSuggestedPrompts` | `assistant:write` | No — needs app reinstall |
-| `setTitle` | `assistant:write` | No — needs app reinstall |
-| Agent Container (split pane) | `assistant:write` + app setting | No |
-
-The `setStatus` API (our biggest win) is available immediately.
+| 1 | Block Kit update rate limits | Fine as-is, no debounce needed |
+| 2 | Fresh post vs update-in-place | _Never_ post fresh. Always: setStatus → task card (update) → final answer (update). Everywhere, including top-level channel messages. |
+| 3 | Backward compat on `MessageTransport` interface | Full cut-over. No compat shim. Delete old path. |
+| 4 | Phased rollout | Ship all phases at once. Work carefully on branch, test, then cut over. |
 
 ---
 
-## Phase 1: `setStatus` + Completion Notifications
+## New interaction flow (everywhere — DMs, threads, channels)
 
-### Goal
-- Show native Slack AI loading indicator during runs on threads
-- Deliver completion notification to user when the answer is ready
+```
+1. Message arrives
+2. setStatus("is thinking...", loadingMessages)   ← API call, no message posted yet
+3. Post Block Kit task card (empty / "starting")  ← first message post
+4. For each tool call:
+     stepStart → update task card (new step highlighted as in-progress)
+     stepEnd   → update task card (step marked done with duration)
+5. emitResponse(text) → update task card: collapse steps to summary + show response text
+6. resolve() → final update with cost footer
+```
 
-### `setStatus` behaviour
-- Displays as "_Digby is thinking..._" in the thread header (not a chat message)
-- Accepts `loading_messages: string[]` — up to 10 strings, Slack rotates through them
-- Auto-clears when any message is posted in that thread
-- Rate limit: special per-team limit, effectively not a concern at our scale
-- Requires `channel_id` + `thread_ts` — no-op for top-level channel messages
+The Slack notification fires on step 3 (first post). `setStatus` shows the animated indicator immediately at step 2. `setStatus` auto-clears when the message is posted at step 3.
 
-### Completion notification problem
+There is never a second "response" message. The task card message IS the response message — it evolves in place.
 
-When a message is _updated_ via `chat.update`, Slack does not re-notify the user. Our current flow updates the thinking placeholder to become the final answer — so the notification fires on "Thinking", not on the answer.
+---
 
-**Fix for threaded responses:** decouple thinking state from the response message.
+## API reference
 
-New flow for threaded runs (`replyThreadTs` is set):
-1. `emitThinking()` → call `setStatus("is thinking...", loadingMessages)`, do _not_ post a placeholder message
-2. `emitProgress(text)` → update the Block Kit task card (see Phase 2), or for Phase 1 just accumulate text silently (or post ephemeral tool lines to a detail sub-thread)
-3. `emitResponse(text)` → post the final answer as a NEW message (triggers notification, status auto-clears)
-4. `resolve()` → update the just-posted message to add cost footer; status is already cleared
+### `assistant.threads.setStatus`
+```
+POST https://slack.com/api/assistant.threads.setStatus
+Scope: chat:write (we have this)
 
-For top-level channel messages (no `replyThreadTs`), keep existing behaviour — we can't call `setStatus` without a `thread_ts`.
+{
+  "channel_id": "C123...",
+  "thread_ts": "1234567890.123456",   // required — use replyThreadTs or the message ts
+  "status": "is thinking...",
+  "loading_messages": [               // optional, up to 10, Slack rotates
+    "is reading the context...",
+    "is thinking...",
+    "is working on it...",
+    "is almost done..."
+  ]
+}
+```
+- Auto-clears when any message is posted in the thread
+- Displays as "_AppName_ is thinking..." in the thread header
+- For top-level channel messages: call with `thread_ts = the message ts we're about to post`... actually `setStatus` requires an existing thread. **See implementation note below.**
 
-### Changes
+### `assistant.threads.setSuggestedPrompts`
+```
+POST https://slack.com/api/assistant.threads.setSuggestedPrompts
+Scope: assistant:write (assumed present)
 
-**`src/slack/client.ts`** — add method:
+{
+  "channel_id": "D123...",
+  "thread_ts": "...",
+  "title": "What can I help with?",
+  "prompts": [
+    { "title": "Linear cycle report", "message": "Give me a summary of the current Linear cycle" },
+    { "title": "Check recent errors", "message": "Any new errors in the last 24h?" },
+    { "title": "Draft a ticket", "message": "Create a Linear ticket for: " }
+  ]
+}
+```
+
+### `assistant.threads.setTitle`
+```
+POST https://slack.com/api/assistant.threads.setTitle
+Scope: assistant:write (assumed present)
+
+{
+  "channel_id": "D123...",
+  "thread_ts": "...",
+  "title": "Linear cycle report - June 17"   // max ~50 chars
+}
+```
+
+---
+
+## Implementation note: `setStatus` requires `thread_ts`
+
+`setStatus` needs a `thread_ts`. For threaded/DM responses this is `replyThreadTs`. For top-level channel posts we don't have a `thread_ts` until we post the message.
+
+**Resolution:** For top-level channel messages, skip `setStatus` and post the Block Kit task card immediately. `setStatus` is called only when `replyThreadTs` is set. The Block Kit card still appears either way — it's just without the animated header indicator for top-level posts.
+
+---
+
+## Block Kit task card design
+
+### While running
+
+```json
+{
+  "text": "Digby is working on it...",
+  "blocks": [
+    {
+      "type": "section",
+      "text": { "type": "mrkdwn", "text": "🤔 *Working on it...*" }
+    },
+    {
+      "type": "context",
+      "elements": [
+        { "type": "mrkdwn", "text": "✓  `read` /data/MEMORY.md   _0.3s_" },
+        { "type": "mrkdwn", "text": "✓  `bash` git log --oneline   _0.8s_" },
+        { "type": "mrkdwn", "text": "*→  `bash` checking Linear...*" }
+      ]
+    },
+    {
+      "type": "context",
+      "elements": [{ "type": "mrkdwn", "text": "_3 steps · streaming_" }]
+    }
+  ]
+}
+```
+
+Rules:
+- Completed steps: `✓  \`toolname\` label   _Xs_`
+- Current step: `*→  \`toolname\` label*` (bold = in progress)
+- Error step: `✗  \`toolname\` label   _error_`
+- Max 10 steps visible; if more, show count: `... and 4 more`
+- Context elements max 10 per block — split into multiple context blocks if needed
+
+### After completion (response folded in)
+
+```json
+{
+  "text": "<response text here>",
+  "blocks": [
+    {
+      "type": "section",
+      "text": { "type": "mrkdwn", "text": "<response text>" }
+    },
+    {
+      "type": "context",
+      "elements": [
+        { "type": "mrkdwn", "text": "✓  read, bash (×2), linear   _5 steps · $0.04_" }
+      ]
+    }
+  ]
+}
+```
+
+On resolve: collapse all step lines into a single summary context line. Response text goes in the top section block.
+
+### Overflow (response > MAX_MESSAGE_LENGTH)
+
+Same fallback as today: upload as file attachment, update message to `_Response too long — replying as a file attachment._`
+
+---
+
+## Code changes
+
+### `src/slack/client.ts`
+
+Add method:
 ```ts
 async setThreadStatus(
   channel: string,
@@ -96,170 +188,127 @@ async setThreadStatus(
 ): Promise<void>
 ```
 
-**`src/surface/slack.ts`** — add field `useStatusApi: boolean` (true when `replyThreadTs` is set):
-- `emitThinking()`: if `useStatusApi`, call `setThreadStatus` instead of posting placeholder
-- `emitResponse()`: if `useStatusApi`, always post a _new_ message (not update existing)
-- The `MessageTransport` interface needs a `setThreadStatus` method added
+Update `postMessage` and `updateMessage` to accept blocks:
+```ts
+type MessagePayload = string | { text: string; blocks: KnownBlock[] };
 
-**`src/surface/types.ts`** — extend `MessageTransport` interface (or keep as optional)
-
-**`src/main.ts`** — pass `setThreadStatus` capability through to surface constructor (already has `replyThreadTs`, so no structural change needed)
-
----
-
-## Phase 2: Block Kit Task Cards
-
-### Goal
-Replace the flat `→ tool-name` progress text with a structured Block Kit card that shows tool steps with done/in-progress/pending state.
-
-### Design
-
-The thinking placeholder becomes a Block Kit message. Structure:
-
-```
-┌──────────────────────────────────────────────┐
-│  🤔 Working on it...                          │
-├──────────────────────────────────────────────┤
-│  ✓  read /data/MEMORY.md               0.3s  │
-│  ✓  bash: git log --oneline -10        0.8s  │
-│  →  bash: checking Linear...          ....   │  ← current (bold/animated)
-├──────────────────────────────────────────────┤
-│  _2 steps · streaming_                        │
-└──────────────────────────────────────────────┘
+async postMessage(channel: string, payload: MessagePayload, threadTs?: string): Promise<string>
+async updateMessage(channel: string, ts: string, payload: MessagePayload): Promise<void>
 ```
 
-On completion, the card collapses to a single summary line and the response is posted below it (new message = notification).
+Import `KnownBlock` from `@slack/web-api`.
 
-### Block Kit structure
+### `src/surface/types.ts`
 
-```json
-{
-  "blocks": [
-    {
-      "type": "section",
-      "text": { "type": "mrkdwn", "text": "🤔 *Working on it...*" }
-    },
-    { "type": "divider" },
-    {
-      "type": "context",
-      "elements": [
-        { "type": "mrkdwn", "text": "✓ `read` /data/MEMORY.md  _0.3s_" },
-        { "type": "mrkdwn", "text": "✓ `bash` git log --oneline  _0.8s_" },
-        { "type": "mrkdwn", "text": "*→ `bash` checking Linear...*" }
-      ]
-    },
-    { "type": "divider" },
-    {
-      "type": "context",
-      "elements": [{ "type": "mrkdwn", "text": "_2 steps · streaming_" }]
-    }
-  ]
-}
-```
+Update `MessageTransport` interface to match new `postMessage`/`updateMessage` signatures. Add `setThreadStatus`.
 
-On completion, the task card collapses to a single context block:
-```
-✓  read, bash (×2), linear (×1)   3 steps · $0.04
-```
+### `src/surface/slack.ts`
 
-### Changes
+Replace the `emitProgress` text-accumulation model with a `TaskCard`:
 
-**`src/surface/slack.ts`** — new `TaskCard` class:
 ```ts
 class TaskCard {
-  private steps: TaskStep[] = [];
-  private currentStep: TaskStep | null = null;
-  
-  stepStart(toolName: string, label: string): void
+  private steps: Array<{
+    toolName: string;
+    label: string;
+    state: "running" | "done" | "error";
+    durationMs?: number;
+    toolCallId: string;
+  }> = [];
+
+  stepStart(toolCallId: string, toolName: string, label: string): void
   stepEnd(toolCallId: string, durationMs: number, isError: boolean): void
-  toBlocks(streaming: boolean, stats: RunStats): KnownBlock[]
-  toSummaryBlocks(stats: RunStats): KnownBlock[]
+  toRunningBlocks(stats: RunStats): KnownBlock[]     // during run
+  toResolvedBlocks(responseText: string, stats: RunStats): KnownBlock[]  // on resolve
 }
 ```
 
-`SlackSurface` holds a `TaskCard` instance. Instead of calling `enqueuePostOrUpdate(text)` on every tool step, it calls `enqueuePostOrUpdate({ blocks: taskCard.toBlocks(...) })`.
+`SlackSurface` changes:
+- Constructor: `taskCard = new TaskCard()`
+- `emitThinking()`:
+  - If `replyThreadTs`: call `setThreadStatus(replyThreadTs, "is thinking...", loadingMessages)`
+  - Post Block Kit task card (empty state: `"🤔 Working on it..."`, no steps yet)
+- `emitProgress()`: *removed* (replaced by task card updates)
+- `emitToolStart(toolCallId, toolName, label)`: new method — `taskCard.stepStart(...)`, update card
+- `emitToolEnd(toolCallId, durationMs, isError)`: new method — `taskCard.stepEnd(...)`, update card
+- `emitResponse(text)`: store response text, update card to resolved state (folds response + step summary)
+- `resolve()`: final update (streaming=false, cost computed) — if response already shown, just adds cost to footer
 
-**`src/slack/client.ts`** — `postMessage` and `updateMessage` need to accept `blocks` payload:
+The `AgentSurface` interface needs `emitToolStart`/`emitToolEnd` or the event handler (`agent/events.ts`) calls the new methods directly.
+
+### `src/agent/events.ts`
+
+In `tool_execution_start` handler: call `ctx.emitToolStart(toolCallId, toolName, label)` instead of `ctx.emitProgress(...)`.
+In `tool_execution_end` handler: call `ctx.emitToolEnd(toolCallId, durationMs, isError)` instead of any progress update.
+In `message_end` handler: call `ctx.emitResponse(text)` as today.
+
+### `src/surface/types.ts` (AgentSurface interface)
+
 ```ts
-async postMessage(channel: string, textOrBlocks: string | BlockPayload, threadTs?: string): Promise<string>
-async updateMessage(channel: string, ts: string, textOrBlocks: string | BlockPayload): Promise<void>
+export interface AgentSurface {
+  emitThinking(): void;
+  emitToolStart(toolCallId: string, toolName: string, label: string): void;  // new
+  emitToolEnd(toolCallId: string, durationMs: number, isError: boolean): void;  // new
+  emitResponse(text: string): void;
+  emitDetail(text: string): void;
+  emitReaction(emoji: string, triggerTs: string): void;
+  emitFile(filePath: string, title?: string): void;
+  resolve(): void;
+  reject(error: string): void;
+  suppress(): void;
+  flush(): Promise<void>;
+  dispose(): void;
+  readonly finalMessageTs: string | null;
+  readonly finalText: string;
+  readonly wasDeleted: boolean;
+}
 ```
 
-**`src/surface/types.ts`** — update `MessageTransport` interface.
+Remove `emitProgress` from the interface (it was internal detail).
 
-Note: `fallback_text` must always be set on Block Kit messages for notifications and accessibility.
+### `src/surface/linear.ts`
 
----
+Update to implement new `AgentSurface` interface — `emitToolStart`/`emitToolEnd` can be no-ops or thin wrappers.
 
-## Phase 3: `assistant:write` Scope Features
+### `src/slack/router.ts` (Phase 3)
 
-_Requires Tom to: api.slack.com/apps → Digby → Features → enable "Agents & AI Apps" → add `assistant:write` to Bot Token Scopes → reinstall to workspace._
-
-### Suggested prompts
-On `assistant_thread_started` event (or when a DM conversation begins), call `setSuggestedPrompts` with context-derived prompts:
-
+Add handler for `assistant_thread_started` event (fires when a DM or Agent Container thread opens):
 ```ts
-await client.assistant.threads.setSuggestedPrompts({
-  channel_id: event.channel,
-  thread_ts: event.thread_ts,
-  title: "What can I help with?",
-  prompts: [
-    { title: "Linear cycle report", message: "Give me a summary of the current Linear cycle" },
-    { title: "Check errors", message: "Any new errors in #errors in the last 24h?" },
-    { title: "Draft a Linear ticket", message: "Create a Linear ticket for: " },
-  ]
+client.onAssistantThreadStarted(async (event) => {
+  await client.setSuggestedPrompts(event.channel, event.threadTs, suggestedPrompts(event));
 });
 ```
 
-These can be dynamically chosen based on channel context (e.g. different prompts in #product vs #errors).
+After first user message response, call `setTitle` with a short summary of the user's message.
 
-### Thread titles
-After the first user message, summarise it in ≤50 chars and call:
+---
+
+## Suggested prompts (Phase 3)
+
+Default set (can be made context-aware later):
 ```ts
-await client.assistant.threads.setTitle({
-  channel_id: event.channel,
-  thread_ts: event.thread_ts,
-  title: summarisedTitle,
-});
+const DEFAULT_PROMPTS = [
+  { title: "Linear cycle report", message: "Give me a summary of the current Linear cycle" },
+  { title: "Recent errors", message: "Any new errors in #errors in the last 24h?" },
+  { title: "Morning digest", message: "What's new since yesterday?" },
+  { title: "Draft a ticket", message: "Create a Linear ticket for: " },
+];
 ```
-
-This names the thread in the History tab for easy retrieval.
-
-### Full Agent Container (split pane)
-If appetite exists: implement `assistant_thread_started` / `assistant_thread_context_changed` / `message.im` event handlers using Bolt's `Assistant` class pattern. This unlocks the native AI panel in the Slack top bar. Likely a separate spike.
 
 ---
 
-## Open questions
+## Testing checklist
 
-1. **Block Kit rate limits.** `chat.update` is Tier 3 (~50/min per channel). Our current flow calls update on every tool step. With Block Kit task cards, same rate applies. For rapid-fire tools (5+ per second), we may need to debounce updates. Add a minimum 500ms interval between Block Kit updates?
-
-2. **Fallback for channels without `replyThreadTs`.** Phase 1 flow change (no placeholder, post fresh on completion) only applies when we have a `thread_ts` to call `setStatus` on. Top-level channel messages keep the current update-in-place flow. Is this acceptable, or do we want to _always_ post fresh (even in channels)?
-
-3. **Backward compat: `MessageTransport` interface.** Several tests (if any) and the `LinearSurface` may depend on the interface shape. Adding optional `blocks` to `postMessage`/`updateMessage` is a non-breaking change if we use overloads or a union type.
-
-4. **Scope change timing.** Phase 3 (suggested prompts, titles) requires `assistant:write` and a workspace reinstall. Do Phase 1+2 first and ship them, then do Phase 3 as a follow-up PR after the reinstall?
-
----
-
-## Implementation order
-
-```
-Phase 1 (1–2 days):
-  ├── src/slack/client.ts     — add setThreadStatus()
-  ├── src/surface/slack.ts    — use setStatus in emitThinking(), post-new in emitResponse() for threads
-  └── tests / manual QA in #digby-testing
-
-Phase 2 (2–3 days):
-  ├── src/surface/slack.ts    — TaskCard class, Block Kit payload generation
-  ├── src/slack/client.ts     — blocks support in postMessage/updateMessage
-  └── tests / visual QA
-
-Phase 3 (after scope change, 1 day):
-  ├── src/slack/router.ts (or new handler) — assistant_thread_started handler
-  ├── src/slack/client.ts     — setSuggestedPrompts(), setTitle()
-  └── docs update
-```
+- [ ] DM conversation: setStatus shows, task card appears, steps accumulate, response folds in with cost
+- [ ] Thread reply (bot mentioned): same flow
+- [ ] Top-level channel message: no setStatus, task card appears immediately, steps work
+- [ ] Long response: file fallback still works
+- [ ] `[SILENT]` / suppress: card deleted cleanly
+- [ ] Error mid-run: reject() shows error in card
+- [ ] Stop command: card deleted, "Stopped" posted
+- [ ] Linear surface: still works after interface change
+- [ ] Suggested prompts: appear on DM open (Phase 3)
+- [ ] Thread title: set after first response (Phase 3)
 
 ---
 
@@ -270,5 +319,4 @@ Phase 3 (after scope change, 1 day):
 - [API: assistant.threads.setSuggestedPrompts](https://api.slack.com/methods/assistant.threads.setSuggestedPrompts)
 - [API: assistant.threads.setTitle](https://api.slack.com/methods/assistant.threads.setTitle)
 - [Block Kit reference](https://api.slack.com/block-kit)
-- [Bolt JS: Assistant class](https://tools.slack.dev/bolt-js/reference/assistant/)
 - Research thread: [#digby-testing 2026-06-17](https://brainwavesio.slack.com/archives/C0AB3CQSSSZ/p1781659818854589)
