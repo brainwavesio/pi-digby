@@ -56,7 +56,12 @@ export function setupRouter(client: SlackClient, handler: RouterHandler, startup
 		if (!channel || !threadTs) return;
 
 		client.setSuggestedPrompts(channel, threadTs, "What can I help with?", DEFAULT_SUGGESTED_PROMPTS).catch((err) => {
-			log.warn("Failed to set suggested prompts", err instanceof Error ? err.message : String(err));
+			const msg = err instanceof Error ? err.message : String(err);
+			if (msg.includes("missing_scope")) {
+				log.info("setSuggestedPrompts: missing_scope (assistant:write scope not yet provisioned)");
+			} else {
+				log.warn("Failed to set suggested prompts", msg);
+			}
 		});
 	});
 

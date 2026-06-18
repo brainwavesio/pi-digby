@@ -96,7 +96,11 @@ class TaskCard {
 	}
 
 	toResolvedBlocks(responseText: string, stats: RunStats, isStreaming: boolean): KnownBlock[] {
-		const sectionText = truncateText(mdToMrkdwn(responseText), MAX_SECTION_TEXT);
+		const TRUNC_NOTE = "\n_... (truncated — full response in thread)_";
+		const sectionText =
+			responseText.length > MAX_SECTION_TEXT
+				? responseText.slice(0, MAX_SECTION_TEXT - TRUNC_NOTE.length) + TRUNC_NOTE
+				: responseText;
 
 		// Collapse steps to a summary: "read, bash (×2), linear"
 		const counts = new Map<string, number>();
@@ -317,6 +321,9 @@ export class SlackSurface implements AgentSurface {
 		this.responseText = mdToMrkdwn(text);
 		this.hasResponse = true;
 		this.enqueuePostOrUpdate(this.resolvedPayload());
+		if (text.length > MAX_SECTION_TEXT) {
+			this.emitDetail(text);
+		}
 		// setTitle on first response (DM threads only)
 		if (!this.titleSet && this.onFirstResponseFn) {
 			this.titleSet = true;
