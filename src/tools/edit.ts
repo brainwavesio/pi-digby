@@ -5,7 +5,6 @@ import { Type } from "typebox";
 
 /**
  * Generate a unified diff string with line numbers and context.
- * Copied from pi-mom (v0.65.0) — src/tools/edit.ts
  */
 function generateDiffString(oldContent: string, newContent: string, contextLines = 4): string {
 	const parts = Diff.diffLines(oldContent, newContent);

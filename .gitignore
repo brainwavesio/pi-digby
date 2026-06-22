@@ -15,6 +15,17 @@ dist/
 *.swp
 *~
 
+# Credentials
+*.pem
+*.key
+*.p12
+*.pfx
+.env.*
+.npmrc
+
+# Coverage
+coverage/
+
 # Data (runtime, not in repo)
 data/
 plans/

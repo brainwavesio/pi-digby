@@ -497,10 +497,10 @@ Resources:
             - Name: DD_SITE
               Value: datadoghq.eu
           Secrets:
-            - Name: MOM_SLACK_APP_TOKEN
-              ValueFrom: !Sub "${Secret}:MOM_SLACK_APP_TOKEN::"
-            - Name: MOM_SLACK_BOT_TOKEN
-              ValueFrom: !Sub "${Secret}:MOM_SLACK_BOT_TOKEN::"
+            - Name: DIGBY_SLACK_APP_TOKEN
+              ValueFrom: !Sub "${Secret}:DIGBY_SLACK_APP_TOKEN::"
+            - Name: DIGBY_SLACK_BOT_TOKEN
+              ValueFrom: !Sub "${Secret}:DIGBY_SLACK_BOT_TOKEN::"
             # AWS credentials provided by ECS task role (pi-digby-task) — no IAM user needed
             - Name: BROWSER_USE_API_KEY
               ValueFrom: !Sub "${Secret}:BROWSER_USE_API_KEY::"

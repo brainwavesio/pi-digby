@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-pi-digby — Slack bot for Brainwaves, powered by pi-agent-core + Amazon Bedrock.
+pi-digby — self-hosted AI agent Slack bot, powered by pi-agent-core + Amazon Bedrock.
 
 ## Architecture
 
@@ -52,8 +52,8 @@ Push to `main` triggers `.github/workflows/deploy.yml` → builds Docker image �
 
 | Secret | Purpose |
 |--------|---------|
-| `MOM_SLACK_APP_TOKEN` | Slack app-level token (Socket Mode) |
-| `MOM_SLACK_BOT_TOKEN` | Slack bot OAuth token |
+| `DIGBY_SLACK_APP_TOKEN` | Slack app-level token (Socket Mode) |
+| `DIGBY_SLACK_BOT_TOKEN` | Slack bot OAuth token |
 | `BROWSER_USE_API_KEY` | browser-use CLI (cloud mode) |
 | `EXA_API_KEY` | Exa search MCP server |
 | `DIGBY_COOKIE_SECRET` | HMAC secret for the wiki's session cookie + OAuth state. Generate with `openssl rand -hex 32`. |

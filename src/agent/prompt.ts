@@ -1,5 +1,5 @@
 /**
- * System prompt builder for digby (pi-mom).
+ * System prompt builder for digby.
  *
  * Ported from upstream agent.ts buildSystemPrompt, simplified for host-only mode.
  */
@@ -48,7 +48,7 @@ Channels: ${channelMappings}
 
 Users: ${userMappings}
 
-When mentioning users, use <@username> format (e.g., <@mario>).`;
+When mentioning users, use <@username> format (e.g., <@your-username>).`;
 
 	return `${intro}
 
@@ -200,7 +200,7 @@ tail -30 log.jsonl | jq -c '{date: .date[0:19], ts, threadTs, user: (.userName /
 grep -i "topic" log.jsonl | jq -c '{date: .date[0:19], ts, threadTs, user: (.userName // .user), text}'
 
 # Messages from specific user
-grep '"userName":"mario"' log.jsonl | tail -20 | jq -c '{date: .date[0:19], ts, threadTs, text}'
+grep '"userName":"your-username"' log.jsonl | tail -20 | jq -c '{date: .date[0:19], ts, threadTs, text}'
 \`\`\`
 
 ## Browser
