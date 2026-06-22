@@ -54,6 +54,6 @@ class WorkspaceSettingsStorage implements MomSettingsStorage {
 /**
  * Create a SettingsManager that persists to {workspaceDir}/settings.json.
  */
-export function createMomSettingsManager(workspaceDir: string): SettingsManager {
+export function createDigbySettingsManager(workspaceDir: string): SettingsManager {
 	return SettingsManager.fromStorage(new WorkspaceSettingsStorage(workspaceDir));
 }

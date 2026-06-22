@@ -1,7 +1,5 @@
 {
 	"mcpServers": {
-		// Add your own MCP servers here. Example:
-		// "my-server": { "url": "https://your-mcp-server.example.com/mcp", "auth": "oauth" }
 		"linear": {
 			"url": "https://mcp.linear.app/mcp",
 			"auth": "oauth"

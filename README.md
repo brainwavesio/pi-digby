@@ -149,7 +149,7 @@ node dist/main.js /path/to/working-dir
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) (coming soon). PRs welcome. Please open an issue first for significant changes.
+See [PRs welcome](https://github.com/brainwavesio/pi-digby/pulls) — please open an issue first for significant changes. A CONTRIBUTING.md is on the way.
 
 ## License
 

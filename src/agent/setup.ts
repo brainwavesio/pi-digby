@@ -28,7 +28,7 @@ import type { ChannelState } from "../channel/state.js";
 import { getRunTimeout } from "../config.js";
 import * as log from "../log.js";
 import {
-	createMomSettingsManager,
+	createDigbySettingsManager,
 	formatLogMessageForContext,
 	type LogContextScope,
 	syncLogToContext,
@@ -218,7 +218,7 @@ export async function createChannelRunner(opts: {
 	// -----------------------------------------------------------------------
 	const contextFile = join(sessionDir, "context.jsonl");
 	const sessionManager = SessionManager.open(contextFile, sessionDir);
-	const settingsManager = createMomSettingsManager(workingDir);
+	const settingsManager = createDigbySettingsManager(workingDir);
 
 	// Load existing messages
 	const loadedSession = sessionManager.buildSessionContext();
