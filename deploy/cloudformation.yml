@@ -1,5 +1,11 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: pi-digby - ECS Fargate infrastructure for the pi-mom Slack bot
+Description: pi-digby - ECS Fargate infrastructure for the pi-digby Slack bot
+
+Parameters:
+  GitHubRepository:
+    Type: String
+    Description: "GitHub repository in owner/repo format — used to restrict the OIDC deploy role trust policy"
+    Default: YOUR_GITHUB_ORG/pi-digby
 
 Resources:
   # ===========================================================================
@@ -331,7 +337,7 @@ Resources:
             Action: sts:AssumeRoleWithWebIdentity
             Condition:
               StringLike:
-                token.actions.githubusercontent.com:sub: "repo:brainwavesio/pi-digby:*"
+                token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubRepository}:*"
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
       Policies:
