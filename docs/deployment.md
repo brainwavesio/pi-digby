@@ -74,9 +74,9 @@ aws secretsmanager get-secret-value \
 
 Push to `main` triggers `.github/workflows/deploy.yml`:
 1. OIDC auth → assumes `pi-digby-github-deploy` role
-2. Build Docker image → push to ECR (tagged with SHA + `latest`)
-3. `aws ecs update-service --force-new-deployment`
-4. Wait for ECS service to stabilize
+2. Build Docker image → push to ECR (tagged with SHA + `latest`) — **before** the CloudFormation step, so the SHA-tagged image exists when the task definition references it
+3. `aws cloudformation deploy` (passing `ImageTag=<git SHA>`) → registers a task definition pinned to that image and performs the rolling ECS deployment, waiting for the service to stabilize
+4. The ECS deployment circuit breaker rolls back to the previous image and **fails the job** if the new tasks never become healthy
 
 ## Manual operations
 

@@ -8,8 +8,6 @@ on:
 env:
   AWS_REGION: us-east-1
   ECR_REPOSITORY: pi-digby
-  ECS_CLUSTER: pi-digby
-  ECS_SERVICE: pi-digby
 
 concurrency:
   group: deploy
@@ -32,11 +30,12 @@ jobs:
           role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/pi-digby-github-deploy
           aws-region: ${{ env.AWS_REGION }}
 
-      # Build and push the image BEFORE CloudFormation. The task definition
-      # pins :latest, and a CloudFormation task-def change (e.g. an env-var
-      # rename) rolls the ECS service immediately — so :latest must already be
-      # the matching image, otherwise the new task definition runs against stale
-      # code and the service can never become healthy.
+      # Build and push the image BEFORE CloudFormation. The task definition pins
+      # the image by git SHA (ImageTag), so the SHA-tagged image must exist in
+      # ECR before CloudFormation registers the task definition that references
+      # it. CloudFormation then performs the single rolling deployment and waits
+      # for the service to stabilise — the deployment circuit breaker rolls back
+      # (and fails this job) if the new tasks never become healthy.
       - name: Login to ECR
         id: ecr
         uses: aws-actions/amazon-ecr-login@v2
@@ -63,21 +62,4 @@ jobs:
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --no-fail-on-empty-changeset \
             --region ${{ env.AWS_REGION }} \
-            --parameter-overrides GitHubRepository=${{ github.repository }}
-
-      - name: Deploy to ECS
-        run: |
-          aws ecs update-service \
-            --cluster ${{ env.ECS_CLUSTER }} \
-            --service ${{ env.ECS_SERVICE }} \
-            --force-new-deployment \
-            --region ${{ env.AWS_REGION }}
-
-      - name: Wait for deployment
-        run: |
-          echo "Waiting for ECS deployment to stabilize..."
-          aws ecs wait services-stable \
-            --cluster ${{ env.ECS_CLUSTER }} \
-            --services ${{ env.ECS_SERVICE }} \
-            --region ${{ env.AWS_REGION }} \
-          || echo "WARNING: Service did not stabilize within timeout"
+            --parameter-overrides GitHubRepository=${{ github.repository }} ImageTag=${{ github.sha }}

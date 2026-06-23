@@ -7,6 +7,11 @@ Parameters:
     Description: "GitHub repository in owner/repo format — used to restrict the OIDC deploy role trust policy"
     Default: YOUR_GITHUB_ORG/pi-digby
 
+  ImageTag:
+    Type: String
+    Description: "Container image tag to deploy. CI passes the git SHA so the task definition pins an immutable artifact — a circuit-breaker rollback then re-pulls the exact previous image instead of a mutated :latest."
+    Default: latest
+
 Resources:
   # ===========================================================================
   # Networking
@@ -178,11 +183,11 @@ Resources:
             "rules": [
               {
                 "rulePriority": 1,
-                "description": "Keep last 10 images",
+                "description": "Keep last 30 images (~10 deploys; buildx pushes several manifests per deploy) so SHA-pinned task definitions retain rollback targets",
                 "selection": {
                   "tagStatus": "any",
                   "countType": "imageCountMoreThan",
-                  "countNumber": 10
+                  "countNumber": 30
                 },
                 "action": {
                   "type": "expire"
@@ -491,7 +496,7 @@ Resources:
               IAM: DISABLED
       ContainerDefinitions:
         - Name: pi-digby
-          Image: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/pi-digby:latest"
+          Image: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/pi-digby:${ImageTag}"
           Essential: true
           MountPoints:
             - SourceVolume: efs-data
