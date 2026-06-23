@@ -183,11 +183,11 @@ Resources:
             "rules": [
               {
                 "rulePriority": 1,
-                "description": "Keep last 30 images (~10 deploys; buildx pushes several manifests per deploy) so SHA-pinned task definitions retain rollback targets",
+                "description": "Keep last 10 images",
                 "selection": {
                   "tagStatus": "any",
                   "countType": "imageCountMoreThan",
-                  "countNumber": 30
+                  "countNumber": 10
                 },
                 "action": {
                   "type": "expire"
