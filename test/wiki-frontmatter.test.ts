@@ -8,7 +8,7 @@ describe("extractFrontmatter", () => {
 		expect(r.body).toBe("# heading\n\nbody");
 	});
 
-	it("parses a typical Brainwaves note", () => {
+	it("parses a typical wiki note", () => {
 		const r = extractFrontmatter(
 			"---\ntype: topic\ncreated: 2026-03-18\ntags: jtbd, pain-point, briefing\n---\n# Topic title\n\nBody.\n",
 		);

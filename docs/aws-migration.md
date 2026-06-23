@@ -169,8 +169,8 @@ Migrate from `wrangler secret` to AWS Secrets Manager, one secret `pi-digby/env`
 
 | Key | Purpose |
 |-----|---------|
-| `MOM_SLACK_APP_TOKEN` | Slack Socket Mode |
-| `MOM_SLACK_BOT_TOKEN` | Slack Bot OAuth |
+| `DIGBY_SLACK_APP_TOKEN` | Slack Socket Mode |
+| `DIGBY_SLACK_BOT_TOKEN` | Slack Bot OAuth |
 | `AWS_ACCESS_KEY_ID` | Bedrock credentials |
 | `AWS_SECRET_ACCESS_KEY` | Bedrock credentials |
 | `BROWSER_USE_API_KEY` | browser-use cloud |
@@ -185,7 +185,7 @@ Note: `R2_*` vars are no longer needed (EFS replaces R2).
 
 - **Task execution role**: pull from ECR, read Secrets Manager, write CloudWatch Logs
 - **Task role**: Bedrock invoke access (the container's own AWS identity)
-- **GitHub deploy role**: OIDC trust for `brainwavesio/pi-digby` repo, permissions to push ECR + update ECS service
+- **GitHub deploy role**: OIDC trust for `YOUR_GITHUB_ORG/pi-digby` repo, permissions to push ECR + update ECS service
 
 ### Container image
 

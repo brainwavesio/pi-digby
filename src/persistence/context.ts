@@ -1,12 +1,12 @@
 /**
- * Context management for mom.
+ * Context management for digby.
  *
- * Mom uses two files per channel:
+ * Digby uses two files per channel:
  * - context.jsonl: Structured API messages for LLM context (same format as coding-agent sessions)
  * - log.jsonl: Human-readable channel history for grep (no tool results)
  *
  * This module provides:
- * - createMomSettingsManager: Creates a SettingsManager backed by workspace settings.json
+ * - createDigbySettingsManager: Creates a SettingsManager backed by workspace settings.json
  * - Re-exports syncLogToContext from log.ts
  */
 
@@ -18,7 +18,7 @@ export type { LogContextScope } from "./log.js";
 export { formatLogMessageForContext, syncLogToContext } from "./log.js";
 
 // ============================================================================
-// Settings manager for mom
+// Settings manager
 // ============================================================================
 
 type MomSettingsStorage = Parameters<typeof SettingsManager.fromStorage>[0];
@@ -32,7 +32,7 @@ class WorkspaceSettingsStorage implements MomSettingsStorage {
 
 	withLock(scope: "global" | "project", fn: (current: string | undefined) => string | undefined): void {
 		if (scope === "project") {
-			// Mom stores all settings in a single workspace file.
+			// Digby stores all settings in a single workspace file.
 			fn(undefined);
 			return;
 		}
@@ -54,6 +54,6 @@ class WorkspaceSettingsStorage implements MomSettingsStorage {
 /**
  * Create a SettingsManager that persists to {workspaceDir}/settings.json.
  */
-export function createMomSettingsManager(workspaceDir: string): SettingsManager {
+export function createDigbySettingsManager(workspaceDir: string): SettingsManager {
 	return SettingsManager.fromStorage(new WorkspaceSettingsStorage(workspaceDir));
 }

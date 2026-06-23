@@ -1,9 +1,5 @@
 {
 	"mcpServers": {
-		"brainwaves": {
-			"url": "https://app.brain-waves.io/mcp",
-			"auth": "oauth"
-		},
 		"linear": {
 			"url": "https://mcp.linear.app/mcp",
 			"auth": "oauth"

@@ -23,8 +23,8 @@ import type { BotEvent } from "./types.js";
 // Config
 // ============================================================================
 
-const MOM_SLACK_APP_TOKEN = process.env.MOM_SLACK_APP_TOKEN;
-const MOM_SLACK_BOT_TOKEN = process.env.MOM_SLACK_BOT_TOKEN;
+const DIGBY_SLACK_APP_TOKEN = process.env.DIGBY_SLACK_APP_TOKEN;
+const DIGBY_SLACK_BOT_TOKEN = process.env.DIGBY_SLACK_BOT_TOKEN;
 
 // Wiki — the four DIGBY_* env vars below are required in production: ECS
 // wires them in via the `Secrets:` block (deploy/cloudformation.yml), so a
@@ -38,7 +38,7 @@ const DIGBY_COOKIE_SECRET = process.env.DIGBY_COOKIE_SECRET;
 const DIGBY_SLACK_CLIENT_ID = process.env.DIGBY_SLACK_CLIENT_ID;
 const DIGBY_SLACK_CLIENT_SECRET = process.env.DIGBY_SLACK_CLIENT_SECRET;
 const DIGBY_SLACK_TEAM_ID = process.env.DIGBY_SLACK_TEAM_ID;
-const DIGBY_WIKI_BASE_URL = process.env.DIGBY_WIKI_BASE_URL ?? "https://digby.brain-waves.io";
+const DIGBY_WIKI_BASE_URL = process.env.DIGBY_WIKI_BASE_URL ?? "";
 
 function parseArgs(): { workingDir: string } {
 	const args = process.argv.slice(2);
@@ -60,8 +60,8 @@ function parseArgs(): { workingDir: string } {
 
 const { workingDir } = parseArgs();
 
-if (!MOM_SLACK_APP_TOKEN || !MOM_SLACK_BOT_TOKEN) {
-	console.error("Missing env: MOM_SLACK_APP_TOKEN, MOM_SLACK_BOT_TOKEN");
+if (!DIGBY_SLACK_APP_TOKEN || !DIGBY_SLACK_BOT_TOKEN) {
+	console.error("Missing env: DIGBY_SLACK_APP_TOKEN, DIGBY_SLACK_BOT_TOKEN");
 	process.exit(1);
 }
 
@@ -300,8 +300,8 @@ async function enqueueSlackEvent(event: SlackEvent, client: SlackClient, isEvent
 // ============================================================================
 
 const client = new SlackClient({
-	appToken: MOM_SLACK_APP_TOKEN,
-	botToken: MOM_SLACK_BOT_TOKEN,
+	appToken: DIGBY_SLACK_APP_TOKEN,
+	botToken: DIGBY_SLACK_BOT_TOKEN,
 });
 
 const handler: RouterHandler = {

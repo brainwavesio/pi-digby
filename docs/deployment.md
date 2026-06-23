@@ -8,7 +8,7 @@ Managed by CloudFormation stack `pi-digby`. Deploy/update with:
 
 ```bash
 aws cloudformation deploy \
-  --profile brainwaves \
+  --profile YOUR_AWS_PROFILE \
   --region us-east-1 \
   --stack-name pi-digby \
   --template-file deploy/cloudformation.yml \
@@ -19,12 +19,12 @@ aws cloudformation deploy \
 
 | Resource | ID / ARN |
 |----------|----------|
-| VPC | `vpc-0c1999dc6e5c15de0` |
+| VPC | `YOUR_VPC_ID` |
 | ECS Cluster | `pi-digby` |
 | ECS Service | `pi-digby` |
-| ECR | `150506369510.dkr.ecr.us-east-1.amazonaws.com/pi-digby` |
-| EFS | `fs-0d331efafa19adc32` (mounted at `/data`) |
-| GitHub Deploy Role | `arn:aws:iam::150506369510:role/pi-digby-github-deploy` |
+| ECR | `YOUR_AWS_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/pi-digby` |
+| EFS | `YOUR_EFS_ID` (mounted at `/data`) |
+| GitHub Deploy Role | `arn:aws:iam::YOUR_AWS_ACCOUNT_ID:role/pi-digby-github-deploy` |
 | Secrets Manager | `pi-digby/env` |
 | CloudWatch Logs | `/ecs/pi-digby` |
 
@@ -35,12 +35,12 @@ Stored in AWS Secrets Manager as `pi-digby/env` (JSON with individual keys).
 Update secrets:
 ```bash
 aws secretsmanager put-secret-value \
-  --profile brainwaves \
+  --profile YOUR_AWS_PROFILE \
   --region us-east-1 \
   --secret-id pi-digby/env \
   --secret-string '{
-    "MOM_SLACK_APP_TOKEN": "xapp-...",
-    "MOM_SLACK_BOT_TOKEN": "xoxb-...",
+    "DIGBY_SLACK_APP_TOKEN": "xapp-...",
+    "DIGBY_SLACK_BOT_TOKEN": "xoxb-...",
     "AWS_ACCESS_KEY_ID": "...",
     "AWS_SECRET_ACCESS_KEY": "...",
     "BROWSER_USE_API_KEY": "...",
@@ -55,7 +55,7 @@ or
 
 ```bash
 aws secretsmanager put-secret-value \
-  --profile brainwaves \
+  --profile YOUR_AWS_PROFILE \
   --region us-east-1 \
   --secret-id pi-digby/env \
   --secret-string file://pi-digby.json.env
@@ -64,7 +64,7 @@ aws secretsmanager put-secret-value \
 View current secrets:
 ```bash
 aws secretsmanager get-secret-value \
-  --profile brainwaves \
+  --profile YOUR_AWS_PROFILE \
   --region us-east-1 \
   --secret-id pi-digby/env \
   --query SecretString --output text | jq .
@@ -82,23 +82,23 @@ Push to `main` triggers `.github/workflows/deploy.yml`:
 
 ```bash
 # View running tasks
-aws ecs list-tasks --profile brainwaves --region us-east-1 --cluster pi-digby
+aws ecs list-tasks --profile YOUR_AWS_PROFILE --region us-east-1 --cluster pi-digby
 
 # View logs
-aws logs tail /ecs/pi-digby --profile brainwaves --region us-east-1 --follow
+aws logs tail /ecs/pi-digby --profile YOUR_AWS_PROFILE --region us-east-1 --follow
 
 # Exec into container (debugging)
-TASK_ID=$(aws ecs list-tasks --profile brainwaves --region us-east-1 --cluster pi-digby --query 'taskArns[0]' --output text)
-aws ecs execute-command --profile brainwaves --region us-east-1 --cluster pi-digby --task $TASK_ID --container pi-digby --interactive --command /bin/bash
+TASK_ID=$(aws ecs list-tasks --profile YOUR_AWS_PROFILE --region us-east-1 --cluster pi-digby --query 'taskArns[0]' --output text)
+aws ecs execute-command --profile YOUR_AWS_PROFILE --region us-east-1 --cluster pi-digby --task $TASK_ID --container pi-digby --interactive --command /bin/bash
 
 # Force restart
-aws ecs update-service --profile brainwaves --region us-east-1 --cluster pi-digby --service pi-digby --force-new-deployment
+aws ecs update-service --profile YOUR_AWS_PROFILE --region us-east-1 --cluster pi-digby --service pi-digby --force-new-deployment
 
 # Scale down (stop bot)
-aws ecs update-service --profile brainwaves --region us-east-1 --cluster pi-digby --service pi-digby --desired-count 0
+aws ecs update-service --profile YOUR_AWS_PROFILE --region us-east-1 --cluster pi-digby --service pi-digby --desired-count 0
 
 # Scale up (start bot)
-aws ecs update-service --profile brainwaves --region us-east-1 --cluster pi-digby --service pi-digby --desired-count 1
+aws ecs update-service --profile YOUR_AWS_PROFILE --region us-east-1 --cluster pi-digby --service pi-digby --desired-count 1
 ```
 
 ## Data migration (R2 → EFS)

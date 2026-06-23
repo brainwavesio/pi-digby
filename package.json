@@ -2,6 +2,7 @@
 	"name": "pi-digby",
 	"version": "2.0.0",
 	"private": true,
+	"license": "MIT",
 	"type": "module",
 	"bin": {
 		"digby": "dist/main.js"

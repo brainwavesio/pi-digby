@@ -22,13 +22,14 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::150506369510:role/pi-digby-github-deploy
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/pi-digby-github-deploy
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Update infrastructure (CloudFormation)
@@ -38,7 +39,8 @@ jobs:
             --template-file deploy/cloudformation.yml \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --no-fail-on-empty-changeset \
-            --region ${{ env.AWS_REGION }}
+            --region ${{ env.AWS_REGION }} \
+            --parameter-overrides GitHubRepository=${{ github.repository }}
 
       - name: Login to ECR
         id: ecr
