@@ -1,0 +1,60 @@
+name: Bug Report
+description: Report a bug or unexpected behaviour in Digby
+labels: ["bug"]
+assignees: []
+body:
+  - type: input
+    id: summary
+    attributes:
+      label: Summary
+      description: A short description of the bug.
+      placeholder: "e.g. Bot stops responding after reconnecting to Slack"
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Step-by-step instructions to reproduce the issue.
+      placeholder: |
+        1. Start the bot with `bun run dev`
+        2. Send a message in #general
+        3. Disconnect and reconnect the Slack socket
+        4. Send another message — no response
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: What actually happened?
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: "OS, Node version, and deployment type (ECS / local / other)"
+      placeholder: "e.g. macOS 14.5, Node 20.11, local"
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Paste relevant log output here (optional).
+      render: shell
+    validations:
+      required: false
