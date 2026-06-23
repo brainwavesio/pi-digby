@@ -565,6 +565,11 @@ Resources:
       DeploymentConfiguration:
         MinimumHealthyPercent: 0
         MaximumPercent: 100
+        # Abort + roll back a deploy whose tasks never reach a healthy steady
+        # state, instead of blocking until the CloudFormation timeout.
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
       NetworkConfiguration:
         AwsvpcConfiguration:
           AssignPublicIp: ENABLED
