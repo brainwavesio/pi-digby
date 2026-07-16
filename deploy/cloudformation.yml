@@ -12,6 +12,11 @@ Parameters:
     Description: "Container image tag to deploy. CI passes the git SHA so the task definition pins an immutable artifact — a circuit-breaker rollback then re-pulls the exact previous image instead of a mutated :latest."
     Default: latest
 
+  WikiBaseUrl:
+    Type: String
+    Description: "Public origin the wiki is served from, e.g. https://digby.example.com — no trailing slash. Used to build the Slack OAuth redirect_uri, so it must match a redirect URL registered on the Slack app. Leave empty to run with the wiki (/w/*) disabled."
+    Default: ""
+
 Resources:
   # ===========================================================================
   # Networking
@@ -508,7 +513,7 @@ Resources:
             - Name: DD_SITE
               Value: datadoghq.eu
             - Name: DIGBY_WIKI_BASE_URL
-              Value: https://digby.brain-waves.io
+              Value: !Ref WikiBaseUrl
           Secrets:
             - Name: DIGBY_SLACK_APP_TOKEN
               ValueFrom: !Sub "${Secret}:DIGBY_SLACK_APP_TOKEN::"
