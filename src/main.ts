@@ -26,19 +26,26 @@ import type { BotEvent } from "./types.js";
 const DIGBY_SLACK_APP_TOKEN = process.env.DIGBY_SLACK_APP_TOKEN;
 const DIGBY_SLACK_BOT_TOKEN = process.env.DIGBY_SLACK_BOT_TOKEN;
 
-// Wiki — the four DIGBY_* env vars below are required in production: ECS
-// wires them in via the `Secrets:` block (deploy/cloudformation.yml), so a
-// missing key in pi-digby/env will fail the task at boot with a clear
+// Wiki — the four secrets below are required in production: ECS wires them in
+// via the `Secrets:` block (deploy/cloudformation.yml), so a missing key in
+// pi-digby/env will fail the task at boot with a clear
 // ResourceInitializationError — which is what we want. We'd rather fail
 // loud at deploy than ship a bot whose /w/* silently 302s into nothing.
 //
-// The env-var gate below exists only for local dev, where these aren't set
-// and the bot should run with the wiki disabled.
+// DIGBY_WIKI_BASE_URL is deployment config, not a secret: it arrives via the
+// `Environment:` block from the WikiBaseUrl stack parameter, and is empty when
+// the operator hasn't set one. It can't fail the task at boot the way a missing
+// secret does, so it belongs in the gate below — without it redirectUri would
+// be the relative string "/auth/slack/callback" and every sign-in would die at
+// Slack's authorize endpoint. The wiki is optional; a half-configured one isn't.
+//
+// The gate also covers local dev, where none of these are set and the bot
+// should run with the wiki disabled.
 const DIGBY_COOKIE_SECRET = process.env.DIGBY_COOKIE_SECRET;
 const DIGBY_SLACK_CLIENT_ID = process.env.DIGBY_SLACK_CLIENT_ID;
 const DIGBY_SLACK_CLIENT_SECRET = process.env.DIGBY_SLACK_CLIENT_SECRET;
 const DIGBY_SLACK_TEAM_ID = process.env.DIGBY_SLACK_TEAM_ID;
-const DIGBY_WIKI_BASE_URL = process.env.DIGBY_WIKI_BASE_URL ?? "";
+const DIGBY_WIKI_BASE_URL = process.env.DIGBY_WIKI_BASE_URL;
 
 function parseArgs(): { workingDir: string } {
 	const args = process.argv.slice(2);
@@ -377,7 +384,13 @@ const httpServer = new HttpServer();
 await client.start();
 
 // Enable the wiki (/w/*, /auth/*, /public/*) when fully configured.
-if (DIGBY_COOKIE_SECRET && DIGBY_SLACK_CLIENT_ID && DIGBY_SLACK_CLIENT_SECRET && DIGBY_SLACK_TEAM_ID) {
+if (
+	DIGBY_COOKIE_SECRET &&
+	DIGBY_SLACK_CLIENT_ID &&
+	DIGBY_SLACK_CLIENT_SECRET &&
+	DIGBY_SLACK_TEAM_ID &&
+	DIGBY_WIKI_BASE_URL
+) {
 	const { createWikiHandler } = await import("./wiki/handler.js");
 	const wikiHandler = await createWikiHandler({
 		workingDir,
@@ -414,7 +427,16 @@ if (DIGBY_COOKIE_SECRET && DIGBY_SLACK_CLIENT_ID && DIGBY_SLACK_CLIENT_SECRET &&
 	httpServer.registerGetPrefix("/r", rawHandler);
 	log.info("Raw file endpoint enabled at /r/");
 } else {
-	log.info("Wiki disabled — DIGBY_COOKIE_SECRET / DIGBY_SLACK_* env not set");
+	const missing = Object.entries({
+		DIGBY_COOKIE_SECRET,
+		DIGBY_SLACK_CLIENT_ID,
+		DIGBY_SLACK_CLIENT_SECRET,
+		DIGBY_SLACK_TEAM_ID,
+		DIGBY_WIKI_BASE_URL,
+	})
+		.filter(([, v]) => !v)
+		.map(([k]) => k);
+	log.info(`Wiki disabled — not set: ${missing.join(", ")}`);
 }
 
 httpServer.start();

@@ -42,9 +42,10 @@ pi-digby is a single Node process. Each Slack channel runs in its own "lane" wit
 
 Fork this repository, then add the following **Actions variables** (Settings → Secrets and variables → Actions → Variables):
 
-| Variable | Description |
-|----------|-------------|
-| `AWS_ACCOUNT_ID` | Your 12-digit AWS account ID |
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `AWS_ACCOUNT_ID` | Yes | Your 12-digit AWS account ID |
+| `WIKI_BASE_URL` | No | Public origin the wiki is served from, e.g. `https://digby.example.com` (no trailing slash). Leave unset to run without the wiki — see [Wiki setup](#wiki-setup-optional). |
 
 The deploy workflow uses OIDC to authenticate with AWS. You will need to create an IAM role that trusts your GitHub repository — see `docs/deployment.md` for the full CloudFormation template that provisions this and all other infrastructure.
 
@@ -86,6 +87,33 @@ Pushing to `main` triggers `.github/workflows/deploy.yml`, which builds the Dock
 
 Invite `@digby` to any channel you want it to monitor. Mention it to trigger a response.
 
+## Wiki setup (optional)
+
+The bot serves a read-only wiki of its memory and channel notes at `/w/*`, behind sign-in-with-Slack. It is off by default. The bot boots and works normally in Slack without it — the wiki is extra capability, not a requirement.
+
+Turning it on takes four things, and **all of them must be in place or the wiki stays off** (the startup log names anything missing):
+
+**1. A public origin.** The container listens on port `8080` but has no public ingress — the ECS security group is egress-only by design. Expose it with a [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/): create a tunnel, add a public hostname routing to `http://localhost:8080`, and put the tunnel token in `pi-digby/env` as `CLOUDFLARE_TUNNEL_TOKEN`. `entrypoint.sh` starts `cloudflared` whenever that token is present. Any other reverse proxy works too.
+
+**2. Slack OAuth redirect URL.** On your Slack app (api.slack.com → OAuth & Permissions), add a redirect URL of `<your origin>/auth/slack/callback`, for example `https://digby.example.com/auth/slack/callback`. Slack only honours redirect URLs registered here, so this must match exactly.
+
+**3. The wiki secrets** in `pi-digby/env`:
+
+```bash
+aws secretsmanager put-secret-value \
+  --secret-id pi-digby/env \
+  --secret-string '{
+    "DIGBY_COOKIE_SECRET": "'"$(openssl rand -hex 32)"'",
+    "DIGBY_SLACK_CLIENT_ID": "...",
+    "DIGBY_SLACK_CLIENT_SECRET": "...",
+    "DIGBY_SLACK_TEAM_ID": "T..."
+  }'
+```
+
+`DIGBY_SLACK_TEAM_ID` is the ACL: only members of that workspace can sign in.
+
+**4. The `WIKI_BASE_URL` Actions variable**, set to the same origin as step 1 with no trailing slash (`https://digby.example.com`). This is the one piece the app cannot work out for itself. It is used to build the OAuth `redirect_uri`, which must match what Slack has registered, and a Cloudflare Tunnel token carries no hostname — the routing lives in Cloudflare's config, not in the container.
+
 ## Environment variables / secrets
 
 All secrets are stored in AWS Secrets Manager as `pi-digby/env` (JSON). The ECS task reads them at startup.
@@ -105,9 +133,11 @@ All secrets are stored in AWS Secrets Manager as `pi-digby/env` (JSON). The ECS 
 | `DIGBY_SLACK_CLIENT_ID` | No | Slack OAuth client ID (enables wiki sign-in) |
 | `DIGBY_SLACK_CLIENT_SECRET` | No | Slack OAuth client secret (enables wiki sign-in) |
 | `DIGBY_SLACK_TEAM_ID` | No | Slack workspace ID (`T…`) — wiki ACL |
-| `DIGBY_WIKI_BASE_URL` | No | Public URL of the wiki (e.g. `https://digby.example.com`) |
+| `CLOUDFLARE_TUNNEL_TOKEN` | No | Cloudflare Tunnel token — exposes the wiki without a public load balancer |
 
 > **Note:** Bedrock authentication uses the ECS task IAM role — no `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` needed for the bot itself.
+
+`DIGBY_WIKI_BASE_URL` is **not** a secret and does not belong in `pi-digby/env`. It is deployment config: set the `WIKI_BASE_URL` Actions variable and the deploy workflow passes it to CloudFormation as the `WikiBaseUrl` stack parameter, which becomes the container's `DIGBY_WIKI_BASE_URL`. Deploying by hand? Pass `--parameter-overrides WikiBaseUrl=https://digby.example.com`.
 
 ## MCP servers
 
