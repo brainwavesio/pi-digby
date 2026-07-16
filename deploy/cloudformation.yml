@@ -507,6 +507,8 @@ Resources:
               Value: us-east-1
             - Name: DD_SITE
               Value: datadoghq.eu
+            - Name: DIGBY_WIKI_BASE_URL
+              Value: https://digby.brain-waves.io
           Secrets:
             - Name: DIGBY_SLACK_APP_TOKEN
               ValueFrom: !Sub "${Secret}:DIGBY_SLACK_APP_TOKEN::"
