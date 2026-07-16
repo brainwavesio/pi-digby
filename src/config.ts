@@ -15,11 +15,13 @@ export interface DigbyConfig {
 	debugThreading?: boolean;
 	/** Maximum time (seconds) a single run can take before being aborted (default: 600) */
 	runTimeout?: number;
+	/** Seconds before hard timeout at which a steering warning is injected (default: 60) */
+	runTimeoutWarnBeforeS?: number;
 }
 
 // Hot-reload: re-read digby.json at most every 2 minutes, or when mtime changes.
 const CACHE_TTL_MS = 2 * 60 * 1000;
-const DEFAULT_RUN_TIMEOUT_S = 300;
+const DEFAULT_RUN_TIMEOUT_S = 360;
 
 let cached: DigbyConfig | null = null;
 let configDir: string | null = null;
@@ -76,4 +78,8 @@ export function isDebugThreadingEnabled(): boolean {
 
 export function getRunTimeout(): number {
 	return loadConfig().runTimeout ?? DEFAULT_RUN_TIMEOUT_S;
+}
+
+export function getRunTimeoutWarnBeforeS(): number {
+	return loadConfig().runTimeoutWarnBeforeS ?? 60;
 }

@@ -25,7 +25,7 @@ import { homedir } from "os";
 import { dirname, join } from "path";
 import type { RunStats } from "../channel/run-stats.js";
 import type { ChannelState } from "../channel/state.js";
-import { getRunTimeout } from "../config.js";
+import { getRunTimeout, getRunTimeoutWarnBeforeS } from "../config.js";
 import * as log from "../log.js";
 import {
 	createDigbySettingsManager,
@@ -396,6 +396,7 @@ export async function createChannelRunner(opts: {
 			// Create per-run event handler (shares stats reference with AgentSurface for footer)
 			const handler = createEventHandler(ctx, channelId, runStats);
 			const unsubscribe = session.subscribe(handler);
+			let warnTimer: ReturnType<typeof setTimeout> | undefined;
 
 			try {
 				// Log context info
@@ -474,6 +475,20 @@ export async function createChannelRunner(opts: {
 					setTimeout(() => reject(new Error(`Run timed out after ${getRunTimeout()}s`)), timeoutMs);
 				});
 
+				// Turn timeout warning — steer the agent before the hard kill
+				const warnBeforeMs = getRunTimeoutWarnBeforeS() * 1000;
+				const warnDelayMs = timeoutMs - warnBeforeMs;
+				if (warnDelayMs > 0) {
+					warnTimer = setTimeout(() => {
+						session.steer(
+							"[SYSTEM] Turn timeout warning: you have approximately " +
+							getRunTimeoutWarnBeforeS() +
+							"s remaining before a hard timeout kills this turn. " +
+							"Wrap up in-flight work, save state to disk, and post a handoff note now."
+						).catch(() => {/* ignore if session already ended */});
+					}, warnDelayMs);
+				}
+
 				const promptPromise = session.prompt(
 					userMessage,
 					imageAttachments.length > 0 ? { images: imageAttachments } : undefined,
@@ -524,6 +539,7 @@ export async function createChannelRunner(opts: {
 					errorMessage: runStats.errorMessage,
 				};
 			} finally {
+				if (warnTimer) clearTimeout(warnTimer);
 				unsubscribe();
 			}
 		},
