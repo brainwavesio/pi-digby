@@ -480,12 +480,16 @@ export async function createChannelRunner(opts: {
 				const warnDelayMs = timeoutMs - warnBeforeMs;
 				if (warnDelayMs > 0) {
 					warnTimer = setTimeout(() => {
-						session.steer(
-							"[SYSTEM] Turn timeout warning: you have approximately " +
-							getRunTimeoutWarnBeforeS() +
-							"s remaining before a hard timeout kills this turn. " +
-							"Wrap up in-flight work, save state to disk, and post a handoff note now."
-						).catch(() => {/* ignore if session already ended */});
+						session
+							.steer(
+								"[SYSTEM] Turn timeout warning: you have approximately " +
+									getRunTimeoutWarnBeforeS() +
+									"s remaining before a hard timeout kills this turn. " +
+									"Wrap up in-flight work, save state to disk, and post a handoff note now.",
+							)
+							.catch(() => {
+								/* ignore if session already ended */
+							});
 					}, warnDelayMs);
 				}
 
