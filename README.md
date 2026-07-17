@@ -13,6 +13,19 @@ A self-hosted AI agent that lives in your Slack workspace, powered by [Claude](h
 - **Scheduled events** — trigger the bot on a cron schedule via files in `events/`
 - **Wiki knowledge base** — optional read-only web UI for browsing the working directory as a wiki (requires Slack OAuth config)
 
+## Security model
+
+Digby is agentic and acts on your behalf. It has a root shell, so everything in the task environment is reachable from it — `GH_TOKEN`, the ECS task role, your MCP keys. There is no allowlist: anyone who can message it in your workspace can drive it. That is the design; it is meant to be frictionless.
+
+Rules you give it — `digby.json`, `MEMORY.md`, the system prompt — are asks, not boundaries. They live on a volume the agent can write to.
+
+So give it capability deliberately:
+
+- **Scope the credentials.** Use a fine-grained `GH_TOKEN` covering only the repos digby should touch, and keep the task role and MCP keys as tight. Assume anything in the environment is one conversation away from being used.
+- **Trust the room.** Only expose digby to people you would trust with those credentials directly — that is effectively what you are doing.
+
+Trusted people alone are not sufficient: digby reads untrusted content (web pages, search results, Linear issues), so a hostile page summarised by a colleague you trust is the same attack. Credential scope is the control that holds either way.
+
 ## Architecture
 
 ```
@@ -123,7 +136,7 @@ All secrets are stored in AWS Secrets Manager as `pi-digby/env` (JSON). The ECS 
 | `DIGBY_SLACK_APP_TOKEN` | Yes | Slack app-level token (`xapp-…`) for Socket Mode |
 | `DIGBY_SLACK_BOT_TOKEN` | Yes | Slack bot OAuth token (`xoxb-…`) |
 | `EXA_API_KEY` | No | [Exa](https://exa.ai) search API key (for the Exa MCP server) |
-| `GH_TOKEN` | No | GitHub personal access token (for GitHub operations) |
+| `GH_TOKEN` | No | GitHub token for repo operations. Use a fine-grained token scoped to only the repos digby should touch — see [Security model](#security-model). |
 | `BROWSER_USE_API_KEY` | No | [browser-use](https://browser-use.com) cloud API key |
 | `DD_API_KEY` | No | Datadog API key |
 | `DD_APP_KEY` | No | Datadog application key |
