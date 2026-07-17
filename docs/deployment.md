@@ -32,33 +32,14 @@ aws cloudformation deploy \
 
 Stored in AWS Secrets Manager as `pi-digby/env` (JSON with individual keys).
 
-Update secrets:
-```bash
-aws secretsmanager put-secret-value \
-  --profile YOUR_AWS_PROFILE \
-  --region us-east-1 \
-  --secret-id pi-digby/env \
-  --secret-string '{
-    "DIGBY_SLACK_APP_TOKEN": "xapp-...",
-    "DIGBY_SLACK_BOT_TOKEN": "xoxb-...",
-    "AWS_ACCESS_KEY_ID": "...",
-    "AWS_SECRET_ACCESS_KEY": "...",
-    "BROWSER_USE_API_KEY": "...",
-    "EXA_API_KEY": "...",
-    "GH_TOKEN": "...",
-    "DD_API_KEY": "...",
-    "DD_APP_KEY": "..."
-  }'
-```
-
-or
+Update secrets — start from [`deploy/secrets.example.json`](../deploy/secrets.example.json), which lists every key the task definition references (all keys must be present; empty strings disable optional features). Bedrock auth uses the ECS task role, so no AWS keys go in the secret.
 
 ```bash
 aws secretsmanager put-secret-value \
   --profile YOUR_AWS_PROFILE \
   --region us-east-1 \
   --secret-id pi-digby/env \
-  --secret-string file://pi-digby.json.env
+  --secret-string file://my-secrets.json
 ```
 
 View current secrets:

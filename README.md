@@ -42,27 +42,44 @@ pi-digby is a single Node process. Each Slack channel runs in its own "lane" wit
 
 ## Prerequisites
 
-- **Node.js 20+** (or use the provided Docker image)
-- **AWS account** with Amazon Bedrock enabled and Claude Sonnet access in `us-east-1`
-- **Slack app** with Socket Mode enabled and the following bot scopes:
-  - `app_mentions:read`, `channels:history`, `groups:history`, `im:history`, `mpim:history`
-  - `chat:write`, `files:read`, `files:write`, `reactions:write`, `users:read`
-- **GitHub repository** forked from this one (for the GitHub Actions deploy pipeline)
+- **AWS account** with admin credentials for the one-time stack creation (after that, deploys go through a scoped OIDC role)
+- **Slack workspace** where you can create and install apps
+- **GitHub account** to fork this repository — deploys run from GitHub Actions
+- **Node.js 20+** — local development only
 
 ## Quick start
 
-### 1. Fork and configure GitHub Actions
+Everything runs in `us-east-1`.
 
-Fork this repository, then add the following **Actions variables** (Settings → Secrets and variables → Actions → Variables):
+### 1. Enable Bedrock model access
+
+Start here — it is the only step with an approval wait. In the AWS console: **Amazon Bedrock → Model access** (region `us-east-1`) → request access to **Anthropic Claude Sonnet 4.6**. The bot invokes the `us.` cross-region inference profile, which can route to `us-east-2` and `us-west-2`, so enable access there too. Approval is usually quick, but not instant.
+
+### 2. Create the Slack app
+
+[api.slack.com/apps](https://api.slack.com/apps) → **Create New App** → **From an app manifest** → paste [`deploy/slack-app-manifest.yml`](deploy/slack-app-manifest.yml).
+
+Then collect the two tokens:
+
+- **Basic Information → App-Level Tokens** → generate one with the `connections:write` scope → `DIGBY_SLACK_APP_TOKEN` (`xapp-…`)
+- **Install App** → install to your workspace → `DIGBY_SLACK_BOT_TOKEN` (`xoxb-…`)
+
+### 3. Fork and configure GitHub Actions
+
+Fork this repository, then in your fork:
+
+1. **Enable workflows** — the Actions tab on a fresh fork asks you to enable them.
+2. Add **Actions variables** (Settings → Secrets and variables → Actions → Variables):
 
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `AWS_ACCOUNT_ID` | Yes | Your 12-digit AWS account ID |
 | `WIKI_BASE_URL` | No | Public origin the wiki is served from, e.g. `https://digby.example.com` (no trailing slash). Leave unset to run without the wiki — see [Wiki setup](#wiki-setup-optional). |
+| `DD_SITE` | No | Datadog site, if you use Datadog (defaults to `datadoghq.com`) |
 
-The deploy workflow uses OIDC to authenticate with AWS. You will need to create an IAM role that trusts your GitHub repository — see `docs/deployment.md` for the full CloudFormation template that provisions this and all other infrastructure.
+The deploy workflow authenticates to AWS with OIDC — no long-lived AWS keys in GitHub. The stack in the next step creates both the identity provider and the deploy role, trust-scoped to your fork.
 
-### 2. Deploy infrastructure
+### 4. Deploy the infrastructure
 
 ```bash
 aws cloudformation deploy \
@@ -70,33 +87,35 @@ aws cloudformation deploy \
   --region us-east-1 \
   --stack-name pi-digby \
   --template-file deploy/cloudformation.yml \
-  --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM
+  --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
+  --parameter-overrides GitHubRepository=YOUR_GITHUB_USER/pi-digby
 ```
 
-This creates: VPC, ECS Fargate cluster/service, EFS volume, ECR repository, IAM roles, Secrets Manager secret, and CloudWatch log group.
+This creates: VPC, ECS Fargate cluster/service, EFS volume, ECR repository, IAM roles, Secrets Manager secret, and CloudWatch log group. The service is created with zero running tasks — there is no image in ECR yet; the first CI deploy (step 6) builds one and starts the bot.
 
-### 3. Set secrets in AWS Secrets Manager
+If your AWS account already has the GitHub Actions OIDC provider (accounts can only have one), add `CreateOIDCProvider=false` to the `--parameter-overrides`.
+
+### 5. Set the secrets
+
+Copy [`deploy/secrets.example.json`](deploy/secrets.example.json), fill in the two Slack tokens from step 2, and upload it:
 
 ```bash
+cp deploy/secrets.example.json /tmp/pi-digby-secrets.json
+# edit /tmp/pi-digby-secrets.json, then:
 aws secretsmanager put-secret-value \
   --profile YOUR_AWS_PROFILE \
   --region us-east-1 \
   --secret-id pi-digby/env \
-  --secret-string '{
-    "DIGBY_SLACK_APP_TOKEN": "xapp-...",
-    "DIGBY_SLACK_BOT_TOKEN": "xoxb-...",
-    "EXA_API_KEY": "...",
-    "GH_TOKEN": "..."
-  }'
+  --secret-string file:///tmp/pi-digby-secrets.json
 ```
 
-See the full secrets table below for all available keys.
+Leave the keys you don't use as empty strings — **every key must be present** (ECS fails the task launch on a missing key), but empty values just disable their feature. See the [secrets table](#environment-variables--secrets) for what each optional key enables.
 
-### 4. Push to main
+### 6. Run the first deploy
 
-Pushing to `main` triggers `.github/workflows/deploy.yml`, which builds the Docker image, pushes it to ECR, and updates the ECS service.
+In your fork: **Actions → Deploy → Run workflow** (on `main`). This builds the Docker image, pushes it to ECR, and rolls the ECS service. From here on, every push to `main` deploys automatically.
 
-### 5. Invite the bot to Slack channels
+### 7. Invite the bot
 
 Invite `@digby` to any channel you want it to monitor. Mention it to trigger a response.
 

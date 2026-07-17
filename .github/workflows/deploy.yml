@@ -20,7 +20,9 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Covers both push and workflow_dispatch — a fresh fork has nothing to push,
+    # so "Run workflow" is the natural first deploy.
+    if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
 
@@ -65,4 +67,6 @@ jobs:
             --parameter-overrides \
               GitHubRepository=${{ github.repository }} \
               ImageTag=${{ github.sha }} \
+              DesiredCount=1 \
+              DatadogSite="${{ vars.DD_SITE || 'datadoghq.com' }}" \
               WikiBaseUrl="${{ vars.WIKI_BASE_URL }}"
