@@ -372,7 +372,17 @@ Resources:
             Action: sts:AssumeRoleWithWebIdentity
             Condition:
               StringLike:
-                token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubRepository}:*"
+                # Two patterns: repositories created after 2026-07-15 emit the
+                # immutable subject format repo:owner@<id>/repo@<id>:..., older
+                # ones the legacy repo:owner/repo:... — a fresh fork gets the
+                # new format, so the trust policy must accept both.
+                # https://github.blog/changelog/2026-04-23-immutable-subject-claims-for-github-actions-oidc-tokens/
+                token.actions.githubusercontent.com:sub:
+                  - !Sub "repo:${GitHubRepository}:*"
+                  - !Sub
+                    - "repo:${Owner}@*/${Repo}@*:*"
+                    - Owner: !Select [0, !Split ["/", !Ref GitHubRepository]]
+                      Repo: !Select [1, !Split ["/", !Ref GitHubRepository]]
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
       Policies:

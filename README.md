@@ -49,7 +49,7 @@ pi-digby is a single Node process. Each Slack channel runs in its own "lane" wit
 
 ## Quick start
 
-Everything runs in `us-east-1`.
+All infrastructure lives in `us-east-1`.
 
 ### 1. Enable Bedrock model access
 
@@ -129,20 +129,23 @@ Turning it on takes four things, and **all of them must be in place or the wiki 
 
 **2. Slack OAuth redirect URL.** On your Slack app (api.slack.com → OAuth & Permissions), add a redirect URL of `<your origin>/auth/slack/callback`, for example `https://digby.example.com/auth/slack/callback`. Slack only honours redirect URLs registered here, so this must match exactly.
 
-**3. The wiki secrets** in `pi-digby/env`:
+**3. The wiki secrets** in `pi-digby/env`. `put-secret-value` **replaces the whole secret**, so don't upload just these four keys — fill them in alongside everything else in your secrets file from [Quick start step 5](#5-set-the-secrets) and re-upload the complete file:
+
+```jsonc
+// in your copy of deploy/secrets.example.json:
+"DIGBY_COOKIE_SECRET": "<openssl rand -hex 32>",
+"DIGBY_SLACK_CLIENT_ID": "...",
+"DIGBY_SLACK_CLIENT_SECRET": "...",
+"DIGBY_SLACK_TEAM_ID": "T..."
+```
 
 ```bash
 aws secretsmanager put-secret-value \
   --secret-id pi-digby/env \
-  --secret-string '{
-    "DIGBY_COOKIE_SECRET": "'"$(openssl rand -hex 32)"'",
-    "DIGBY_SLACK_CLIENT_ID": "...",
-    "DIGBY_SLACK_CLIENT_SECRET": "...",
-    "DIGBY_SLACK_TEAM_ID": "T..."
-  }'
+  --secret-string file:///tmp/pi-digby-secrets.json
 ```
 
-`DIGBY_SLACK_TEAM_ID` is the ACL: only members of that workspace can sign in.
+The client ID and secret are on your Slack app's **Basic Information** page. `DIGBY_SLACK_TEAM_ID` is the ACL: only members of that workspace can sign in.
 
 **4. The `WIKI_BASE_URL` Actions variable**, set to the same origin as step 1 with no trailing slash (`https://digby.example.com`). This is the one piece the app cannot work out for itself. It is used to build the OAuth `redirect_uri`, which must match what Slack has registered, and a Cloudflare Tunnel token carries no hostname — the routing lives in Cloudflare's config, not in the container.
 

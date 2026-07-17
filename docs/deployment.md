@@ -4,7 +4,7 @@ pi-digby runs on AWS ECS Fargate in us-east-1.
 
 ## Infrastructure
 
-Managed by CloudFormation stack `pi-digby`. Deploy/update with:
+Managed by CloudFormation stack `pi-digby`. Update an existing stack with the command below — unspecified parameters keep their previous values. First-time creation requires `--parameter-overrides GitHubRepository=owner/repo` (see the README [Quick start](../README.md#quick-start)).
 
 ```bash
 aws cloudformation deploy \
