@@ -20,8 +20,13 @@ RUN npm run build
 
 FROM node:22-bookworm-slim
 
-# Detect target architecture for arch-specific downloads
+# Detect target architecture for arch-specific downloads.
+# TARGETARCH is only populated by BuildKit. Fail loudly if it is empty —
+# otherwise every arch check below silently falls through to its x86_64
+# branch and bakes x86 binaries into an ARM64 image.
 ARG TARGETARCH
+RUN test -n "$TARGETARCH" \
+  || { echo "TARGETARCH is empty — build with BuildKit (docker buildx build)"; exit 1; }
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git jq curl wget ca-certificates \
@@ -33,10 +38,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gh \
   && rm -rf /var/lib/apt/lists/*
 
-# ripgrep — arch-aware
-RUN RG_ARCH=$([ "$TARGETARCH" = "arm64" ] && echo "aarch64" || echo "x86_64") \
-  && curl -fsSL "https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep-14.1.1-${RG_ARCH}-unknown-linux-musl.tar.gz" \
-  | tar xz --strip-components=1 -C /usr/local/bin "ripgrep-14.1.1-${RG_ARCH}-unknown-linux-musl/rg"
+# ripgrep — arch-aware. ripgrep publishes no aarch64 musl build for 14.1.1,
+# so ARM64 uses the gnu target; x86_64 keeps the existing musl build.
+RUN RG_TRIPLE=$([ "$TARGETARCH" = "arm64" ] && echo "aarch64-unknown-linux-gnu" || echo "x86_64-unknown-linux-musl") \
+  && curl -fsSL "https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep-14.1.1-${RG_TRIPLE}.tar.gz" \
+  | tar xz --strip-components=1 -C /usr/local/bin "ripgrep-14.1.1-${RG_TRIPLE}/rg"
 
 # cloudflared (Cloudflare Tunnel client) — pinned version + per-arch checksum
 RUN CF_ARCH=$([ "$TARGETARCH" = "arm64" ] && echo "arm64" || echo "amd64") \
