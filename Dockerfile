@@ -20,6 +20,14 @@ RUN npm run build
 
 FROM node:22-bookworm-slim
 
+# Detect target architecture for arch-specific downloads.
+# TARGETARCH is only populated by BuildKit. Fail loudly if it is empty —
+# otherwise every arch check below silently falls through to its x86_64
+# branch and bakes x86 binaries into an ARM64 image.
+ARG TARGETARCH
+RUN test -n "$TARGETARCH" \
+  || { echo "TARGETARCH is empty — build with BuildKit (docker buildx build)"; exit 1; }
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git jq curl wget ca-certificates \
     python3 python3-pip python3-venv \
@@ -30,37 +38,44 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gh \
   && rm -rf /var/lib/apt/lists/*
 
-# ripgrep
-RUN curl -fsSL "https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep-14.1.1-x86_64-unknown-linux-musl.tar.gz" \
-  | tar xz --strip-components=1 -C /usr/local/bin "ripgrep-14.1.1-x86_64-unknown-linux-musl/rg"
+# ripgrep — arch-aware. ripgrep publishes no aarch64 musl build for 14.1.1,
+# so ARM64 uses the gnu target; x86_64 keeps the existing musl build.
+RUN RG_TRIPLE=$([ "$TARGETARCH" = "arm64" ] && echo "aarch64-unknown-linux-gnu" || echo "x86_64-unknown-linux-musl") \
+  && curl -fsSL "https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep-14.1.1-${RG_TRIPLE}.tar.gz" \
+  | tar xz --strip-components=1 -C /usr/local/bin "ripgrep-14.1.1-${RG_TRIPLE}/rg"
 
-# cloudflared (Cloudflare Tunnel client) — pinned version + checksum
-RUN curl -fsSL -o /usr/local/bin/cloudflared \
-    "https://github.com/cloudflare/cloudflared/releases/download/2026.3.0/cloudflared-linux-amd64" \
-  && echo "4a9e50e6d6d798e90fcd01933151a90bf7edd99a0a55c28ad18f2e16263a5c30  /usr/local/bin/cloudflared" | sha256sum -c - \
+# cloudflared (Cloudflare Tunnel client) — pinned version + per-arch checksum
+RUN CF_ARCH=$([ "$TARGETARCH" = "arm64" ] && echo "arm64" || echo "amd64") \
+  && AMD64_SHA="4a9e50e6d6d798e90fcd01933151a90bf7edd99a0a55c28ad18f2e16263a5c30" \
+  && ARM64_SHA="0755ba4cbab59980e6148367fcf53a8f3ec85a97deefd63c2420cf7850769bee" \
+  && EXPECTED=$([ "$TARGETARCH" = "arm64" ] && echo "$ARM64_SHA" || echo "$AMD64_SHA") \
+  && curl -fsSL -o /usr/local/bin/cloudflared \
+      "https://github.com/cloudflare/cloudflared/releases/download/2026.3.0/cloudflared-linux-${CF_ARCH}" \
+  && echo "${EXPECTED}  /usr/local/bin/cloudflared" | sha256sum -c - \
   && chmod +x /usr/local/bin/cloudflared
 
-# pup (Datadog CLI)
+# pup (Datadog CLI) — arch-aware
 RUN VERSION=$(curl -sL https://api.github.com/repos/DataDog/pup/releases/latest | grep -o '"tag_name": "[^"]*' | cut -d'"' -f4) \
-  && curl -fsSL "https://github.com/DataDog/pup/releases/download/${VERSION}/pup_${VERSION#v}_Linux_x86_64.tar.gz" \
+  && PUP_ARCH=$([ "$TARGETARCH" = "arm64" ] && echo "arm64" || echo "x86_64") \
+  && curl -fsSL "https://github.com/DataDog/pup/releases/download/${VERSION}/pup_${VERSION#v}_Linux_${PUP_ARCH}.tar.gz" \
     -o /tmp/pup.tar.gz \
   && tar -xzf /tmp/pup.tar.gz -C /usr/local/bin/ pup \
   && rm /tmp/pup.tar.gz \
   && chmod +x /usr/local/bin/pup
 
-# uv (fast Python package manager)
+# uv (fast Python package manager) — install.sh auto-detects arch
 RUN curl -fsSL https://astral.sh/uv/install.sh | sh \
   && ln -s /root/.local/bin/uv /usr/local/bin/uv \
   && ln -s /root/.local/bin/uvx /usr/local/bin/uvx
 
-# bun (fast JS/TS runtime)
+# bun (fast JS/TS runtime) — install script auto-detects arch
 RUN curl -fsSL https://bun.sh/install | bash \
   && ln -s /root/.bun/bin/bun /usr/local/bin/bun \
   && ln -s /root/.bun/bin/bunx /usr/local/bin/bunx
 
-# AWS CLI v2 (no pinned version — AWS updates the zip at a fixed URL;
-# integrity via HTTPS from awscli.amazonaws.com, same as uv/bun installs)
-RUN curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip \
+# AWS CLI v2 — arch-aware
+RUN AWS_ARCH=$([ "$TARGETARCH" = "arm64" ] && echo "aarch64" || echo "x86_64") \
+  && curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${AWS_ARCH}.zip" -o /tmp/awscliv2.zip \
   && unzip -q /tmp/awscliv2.zip -d /tmp \
   && /tmp/aws/install \
   && rm -rf /tmp/awscliv2.zip /tmp/aws
