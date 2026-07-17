@@ -65,8 +65,8 @@ Push to `main` triggers `.github/workflows/deploy.yml` → builds Docker image �
 
 ## Upstream dependencies
 
-Consumed as npm packages (not local sources):
-- `@mariozechner/pi-agent-core` — Agent class, tool execution loop
-- `@mariozechner/pi-ai` — Bedrock streaming provider
-- `@mariozechner/pi-coding-agent` — AgentSession, SessionManager, convertToLlm
+Consumed as npm packages:
+- `@earendil-works/pi-agent-core` — Agent class, tool execution loop
+- `@earendil-works/pi-ai` — Bedrock streaming provider
+- `@earendil-works/pi-coding-agent` — AgentSession, SessionManager, convertToLlm
 - `pi-mcp-adapter` — MCP server integration
