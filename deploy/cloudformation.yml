@@ -4,18 +4,39 @@ Description: pi-digby - ECS Fargate infrastructure for the pi-digby Slack bot
 Parameters:
   GitHubRepository:
     Type: String
-    Description: "GitHub repository in owner/repo format — used to restrict the OIDC deploy role trust policy"
-    Default: YOUR_GITHUB_ORG/pi-digby
+    Description: "GitHub repository in owner/repo format — used to restrict the OIDC deploy role trust policy. No default: pass your fork explicitly (deliberately fails loud here rather than silently at OIDC auth time)."
+    AllowedPattern: "^[^/]+/[^/]+$"
+    ConstraintDescription: "must be owner/repo, e.g. your-org/pi-digby"
 
   ImageTag:
     Type: String
     Description: "Container image tag to deploy. CI passes the git SHA so the task definition pins an immutable artifact — a circuit-breaker rollback then re-pulls the exact previous image instead of a mutated :latest."
     Default: latest
 
+  DesiredCount:
+    Type: Number
+    Description: "Number of bot tasks. Defaults to 0 so initial stack creation succeeds before any image exists in ECR — otherwise the service tries to pull from the empty repository this same template creates, the deployment circuit breaker trips, and stack creation rolls back. CI passes 1 on every deploy."
+    Default: 0
+    AllowedValues: [0, 1]
+
+  CreateOIDCProvider:
+    Type: String
+    Description: "Whether to create the GitHub Actions OIDC identity provider. AWS allows only one provider per URL per account — set to false if your account already has token.actions.githubusercontent.com (the deploy role then references the existing provider)."
+    Default: "true"
+    AllowedValues: ["true", "false"]
+
+  DatadogSite:
+    Type: String
+    Description: "Datadog site the container reports to (DD_SITE). Only relevant if DD_API_KEY is set in the secret."
+    Default: datadoghq.com
+
   WikiBaseUrl:
     Type: String
     Description: "Public origin the wiki is served from, e.g. https://digby.example.com — no trailing slash. Used to build the Slack OAuth redirect_uri, so it must match a redirect URL registered on the Slack app. Leave empty to run with the wiki (/w/*) disabled."
     Default: ""
+
+Conditions:
+  ShouldCreateOIDCProvider: !Equals [!Ref CreateOIDCProvider, "true"]
 
 Resources:
   # ===========================================================================
@@ -323,9 +344,10 @@ Resources:
                   - cloudwatch:GetMetricStatistics
                 Resource: "*"
 
-  # GitHub OIDC Provider
+  # GitHub OIDC Provider (skipped when CreateOIDCProvider=false — one per account)
   GitHubOIDCProvider:
     Type: AWS::IAM::OIDCProvider
+    Condition: ShouldCreateOIDCProvider
     Properties:
       Url: https://token.actions.githubusercontent.com
       ClientIdList:
@@ -343,11 +365,24 @@ Resources:
         Statement:
           - Effect: Allow
             Principal:
-              Federated: !Ref GitHubOIDCProvider
+              Federated: !If
+                - ShouldCreateOIDCProvider
+                - !Ref GitHubOIDCProvider
+                - !Sub "arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com"
             Action: sts:AssumeRoleWithWebIdentity
             Condition:
               StringLike:
-                token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubRepository}:*"
+                # Two patterns: repositories created after 2026-07-15 emit the
+                # immutable subject format repo:owner@<id>/repo@<id>:..., older
+                # ones the legacy repo:owner/repo:... — a fresh fork gets the
+                # new format, so the trust policy must accept both.
+                # https://github.blog/changelog/2026-04-23-immutable-subject-claims-for-github-actions-oidc-tokens/
+                token.actions.githubusercontent.com:sub:
+                  - !Sub "repo:${GitHubRepository}:*"
+                  - !Sub
+                    - "repo:${Owner}@*/${Repo}@*:*"
+                    - Owner: !Select [0, !Split ["/", !Ref GitHubRepository]]
+                      Repo: !Select [1, !Split ["/", !Ref GitHubRepository]]
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
       Policies:
@@ -509,9 +544,9 @@ Resources:
               ReadOnly: false
           Environment:
             - Name: AWS_DEFAULT_REGION
-              Value: us-east-1
+              Value: !Ref AWS::Region
             - Name: DD_SITE
-              Value: datadoghq.eu
+              Value: !Ref DatadogSite
             - Name: DIGBY_WIKI_BASE_URL
               Value: !Ref WikiBaseUrl
           Secrets:
@@ -570,7 +605,7 @@ Resources:
       ServiceName: pi-digby
       Cluster: !Ref ECSCluster
       TaskDefinition: !Ref TaskDefinition
-      DesiredCount: 1
+      DesiredCount: !Ref DesiredCount
       LaunchType: FARGATE
       PlatformVersion: LATEST
       EnableExecuteCommand: true

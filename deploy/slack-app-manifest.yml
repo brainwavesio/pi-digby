@@ -1,0 +1,56 @@
+# Slack app manifest for pi-digby.
+#
+# Create the app from this file: https://api.slack.com/apps → "Create New App"
+# → "From an app manifest" → pick your workspace → paste this YAML.
+#
+# Two things the manifest cannot do for you, both under the app's settings
+# after creation:
+#   1. Basic Information → App-Level Tokens → generate a token with the
+#      connections:write scope. That is DIGBY_SLACK_APP_TOKEN (xapp-…).
+#   2. Install App → install to your workspace. The resulting Bot User OAuth
+#      Token is DIGBY_SLACK_BOT_TOKEN (xoxb-…).
+#
+# The oauth redirect URL below is only needed for the optional wiki
+# (see "Wiki setup" in the README) — replace the domain if you use it,
+# or remove the oauth redirect_urls block entirely if you don't.
+
+display_information:
+  name: digby
+  description: Self-hosted AI agent
+  background_color: "#2c2d30"
+features:
+  bot_user:
+    display_name: digby
+    always_online: true
+oauth_config:
+  redirect_urls:
+    - https://digby.example.com/auth/slack/callback
+  scopes:
+    bot:
+      - app_mentions:read
+      - channels:history
+      - channels:read
+      - groups:history
+      - groups:read
+      - im:history
+      - im:read
+      - mpim:history
+      - mpim:read
+      - chat:write
+      - files:read
+      - files:write
+      - reactions:write
+      - users:read
+settings:
+  event_subscriptions:
+    bot_events:
+      - app_mention
+      - message.channels
+      - message.groups
+      - message.im
+      - message.mpim
+  interactivity:
+    is_enabled: false
+  org_deploy_enabled: false
+  socket_mode_enabled: true
+  token_rotation_enabled: false
