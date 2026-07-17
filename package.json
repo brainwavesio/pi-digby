@@ -10,7 +10,7 @@
 	"scripts": {
 		"build": "tsgo -p tsconfig.json && mkdir -p dist/wiki && cp -R src/wiki/public dist/wiki/public",
 		"check": "biome check --write --error-on-warnings src/ && tsgo --noEmit",
-		"test": "vitest run",
+		"test": "vitest run --dir test",
 		"clean": "rm -rf dist",
 		"prepare": "husky"
 	},
