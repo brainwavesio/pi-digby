@@ -19,7 +19,11 @@ permissions:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    # Native ARM64 runner: the image is linux/arm64, so building here avoids
+    # emulating every npm postinstall under QEMU. node-llama-cpp's postinstall
+    # executes its prebuilt binary to self-test it, and on failure falls back to
+    # compiling llama.cpp from source — an hours-long build under emulation.
+    runs-on: ubuntu-24.04-arm
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
@@ -39,11 +43,6 @@ jobs:
       - name: Login to ECR
         id: ecr
         uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Set up QEMU (for ARM64 cross-compilation)
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm64
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
