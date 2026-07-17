@@ -30,3 +30,4 @@ coverage/
 data/
 plans/
 *.env
+.worktrees/

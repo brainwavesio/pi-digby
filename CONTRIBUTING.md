@@ -1,85 +1,54 @@
-# Contributing to Digby
+# Contributing to pi-digby
 
-Digby is an open-source Slack ops agent built on the pi-agent-core runtime and Amazon Bedrock. We welcome bug reports, feature requests, and pull requests from the community.
+Bug reports, feature requests, and pull requests are welcome. For significant changes, please open an issue first so we can talk it through before you invest the time.
 
-## Prerequisites
+## Toolchain
 
-- **Node.js** 20+
-- **Bun** (used as the package manager and test runner)
-- **Docker** (for local container builds)
-- **AWS CLI** (for deploy operations)
+- **Node.js 20+** and **npm**
+- **Docker** — only if you're working on the container image
 
-## Getting started
+## Setup
 
 ```bash
 git clone https://github.com/brainwavesio/pi-digby.git
 cd pi-digby
-cp .env.example .env          # fill in your Slack and AWS credentials
-bun install
-bun run dev
+npm install
 ```
 
-## Code style
-
-We use [Biome](https://biomejs.dev/) for linting and formatting. Before opening a PR, make sure your changes pass:
+## Development loop
 
 ```bash
-bun run lint      # lint check
-bun run format    # auto-format
+npm run check    # Biome lint + typecheck — the pre-commit hook runs this too
+npm run build    # compile to dist/ (includes the wiki's static assets)
+npm test         # vitest
 ```
 
-PRs that fail lint will not be merged.
-
-## Branch naming
-
-| Type | Pattern |
-|------|---------|
-| New feature | `feat/<slug>` |
-| Bug fix | `fix/<slug>` |
-| Maintenance / chore | `chore/<slug>` |
-
-## PR process
-
-1. Fork the repository and create your branch from `main`.
-2. Make your changes on a branch following the naming convention above.
-3. Open a pull request against `main`.
-4. One approval from a maintainer is required before merging.
-5. PRs are merged with **squash merge** to keep the history clean.
-
-## Testing
+To run the bot locally you need the two Slack tokens (see the README [Quick start](README.md#quick-start) for creating the app) and ambient AWS credentials with Bedrock access (`bedrock:InvokeModel` / `bedrock:InvokeModelWithResponseStream` in `us-east-1`):
 
 ```bash
-bun test
+npm run build
+DIGBY_SLACK_APP_TOKEN=xapp-... \
+DIGBY_SLACK_BOT_TOKEN=xoxb-... \
+node dist/main.js /path/to/working-dir
 ```
 
-Unit tests live alongside the source files in `src/**/*.test.ts`. Please add or update tests for any logic you change.
+The working directory can be any empty directory — it plays the role of `/data` in production: channel logs, memory, and MCP config all live there.
 
-## Commit style
+## Tests
 
-We use [Conventional Commits](https://www.conventionalcommits.org/):
+Tests live in [`test/`](test/) and run with vitest. If you change behaviour, add or update a test that fails without your change — tests here should capture *why* the behaviour matters, not just restate the implementation.
 
-```
-feat: add support for scheduled reminders
-fix: handle empty message payloads in router
-chore: upgrade biome to 1.9
-docs: update deployment guide
-```
+## Pull requests
 
-Types: `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `ci`.
+- Branch from `main`; branch names follow `feat/<slug>`, `fix/<slug>`, `docs/<slug>`, `chore/<slug>`.
+- Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`, `ci:`, `revert:`).
+- Keep the diff focused — no unrelated cleanup bundled in.
+- PRs are squash-merged, so the PR title becomes the commit message: write it like one.
+- `npm run check` and `npm test` must pass.
 
-## What makes a good issue
+## Security
 
-- A clear, descriptive title.
-- Steps to reproduce (for bugs) or a concrete problem statement (for features).
-- Relevant logs, screenshots, or error messages.
-- Environment details: OS, Node version, deployment type (ECS / local).
-
-## What makes a good PR
-
-- A concise summary of **what** changed and **why**.
-- Tests covering the new or fixed behaviour.
-- No unrelated cleanup bundled in — keep the diff focused.
-- Screenshots or log excerpts where the change has a visible effect.
+If you find a security issue, please follow [SECURITY.md](SECURITY.md) rather than opening a public issue. It's worth reading the README's [Security model](README.md#security-model) first — digby is deliberately agentic, so some things that look like vulnerabilities are documented design decisions.
 
 ## Code of Conduct
 

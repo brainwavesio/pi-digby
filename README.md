@@ -1,6 +1,6 @@
 # pi-digby
 
-A self-hosted AI agent that lives in your Slack workspace, powered by [Claude](https://www.anthropic.com/claude) via Amazon Bedrock. Digby responds to mentions, maintains persistent memory across conversations, can read and edit files, run shell commands, search the web via MCP, and trigger on a schedule — all from your existing Slack setup with no public endpoints required.
+A self-hosted AI agent that lives in your Slack workspace, powered by [Claude](https://www.anthropic.com/claude) via Amazon Bedrock. Digby responds to mentions, maintains persistent memory across conversations, can read and edit files, run shell commands, search the web via MCP, and trigger on a schedule — all from your existing Slack setup. The Slack connection is outbound-only (Socket Mode); the optional extras — the Linear agent's webhook and the wiki — need one public origin, typically a [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/).
 
 ## What it does
 
@@ -163,7 +163,7 @@ All secrets are stored in AWS Secrets Manager as `pi-digby/env` (JSON). The ECS 
 | `DD_API_KEY` | No | Datadog API key |
 | `DD_APP_KEY` | No | Datadog application key |
 | `LINEAR_API_KEY` | No | Linear API key (enables Linear agent) |
-| `LINEAR_WEBHOOK_SECRET` | No | Linear webhook secret (enables Linear agent) |
+| `LINEAR_WEBHOOK_SECRET` | No | Linear webhook secret (enables Linear agent). Point Linear's webhook at `<your origin>/webhooks/linear` — needs the same public origin as [Wiki setup](#wiki-setup-optional) step 1. |
 | `DIGBY_COOKIE_SECRET` | No | 32-byte hex secret for wiki session cookies (`openssl rand -hex 32`) |
 | `DIGBY_SLACK_CLIENT_ID` | No | Slack OAuth client ID (enables wiki sign-in) |
 | `DIGBY_SLACK_CLIENT_SECRET` | No | Slack OAuth client secret (enables wiki sign-in) |
@@ -214,7 +214,7 @@ node dist/main.js /path/to/working-dir
 
 ## Contributing
 
-See [PRs welcome](https://github.com/brainwavesio/pi-digby/pulls) — please open an issue first for significant changes. A CONTRIBUTING.md is on the way.
+PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Please open an issue first for significant changes.
 
 ## License
 
