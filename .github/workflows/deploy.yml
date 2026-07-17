@@ -19,11 +19,7 @@ permissions:
 
 jobs:
   deploy:
-    # Native ARM64 runner: the image is linux/arm64, so building here avoids
-    # emulating every npm postinstall under QEMU. node-llama-cpp's postinstall
-    # executes its prebuilt binary to self-test it, and on failure falls back to
-    # compiling llama.cpp from source — an hours-long build under emulation.
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
@@ -51,7 +47,6 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/arm64
           push: true
           tags: |
             ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
