@@ -4,14 +4,14 @@ A self-hosted AI agent that lives in your Slack workspace, powered by [Claude](h
 
 ## What it does
 
-- **Slack bot via Socket Mode** — no public endpoint needed; connects outbound over WebSocket
-- **Persistent memory** — maintains `MEMORY.md` and per-channel `log.jsonl` / `context.jsonl` on an EFS volume that survives container restarts
-- **File system tools** — read, write, edit, and attach files inside the working directory
-- **Shell access** — runs bash commands, installs packages, executes scripts
-- **MCP integrations** — plug in any MCP server (Linear, Exa search, and more) via `.pi/mcp.json`
-- **Linear integration** — optional webhook-driven agent that comments on Linear issues
-- **Scheduled events** — trigger the bot on a cron schedule via files in `events/`
-- **Wiki knowledge base** — optional read-only web UI for browsing the working directory as a wiki (requires Slack OAuth config)
+- **Slack bot (Socket Mode)** — connects outbound over WebSocket
+- **Linear agent** — (optional) assign tickets to the same agent running in your Slack
+- **Persistent memory** — maintains global `MEMORY.md` and per-channel `MEMORY.md` / `log.jsonl` / `context.jsonl` histories
+- **Shell and file system tools** — persistent `~` directory: can clone repos, run apps and tools, and maintain a knowledge base
+- **MCP integrations** — plug in any MCP server (Linear, Exa search, and more) via `.pi/mcp.json`, or just ask!
+- **Scheduled events** — configures itself to trigger on cron schedules: run standup, write Friday release notes, etc.
+- **Wiki knowledge base** — (optional) web UI at `/w/` for browsing `~` as a wiki, gated by Slack OAuth
+- **Serve raw assets** — (optional) view HTML and other artifacts directly at `/r/` from the agent's `~` directory, gated by Slack OAuth
 
 ## Security model
 
