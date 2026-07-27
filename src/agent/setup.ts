@@ -65,6 +65,20 @@ if (!model.contextWindow || model.contextWindow <= 0) {
 }
 
 // ---------------------------------------------------------------------------
+// Model runtime (singleton — process-global, auth path is static)
+// ---------------------------------------------------------------------------
+
+let _modelRuntimePromise: Promise<ModelRuntime> | undefined;
+function getModelRuntime(): Promise<ModelRuntime> {
+	if (!_modelRuntimePromise) {
+		_modelRuntimePromise = ModelRuntime.create({
+			authPath: join(homedir(), ".pi", "mom", "auth.json"),
+		});
+	}
+	return _modelRuntimePromise;
+}
+
+// ---------------------------------------------------------------------------
 // Bedrock auth
 // ---------------------------------------------------------------------------
 
@@ -199,11 +213,9 @@ export async function createChannelRunner(opts: {
 	});
 
 	// -----------------------------------------------------------------------
-	// Auth + Model runtime
+	// Auth + Model runtime (shared singleton — see module-level getModelRuntime())
 	// -----------------------------------------------------------------------
-	const modelRuntime = await ModelRuntime.create({
-		authPath: join(homedir(), ".pi", "mom", "auth.json"),
-	});
+	const modelRuntime = await getModelRuntime();
 
 	// -----------------------------------------------------------------------
 	// Agent
