@@ -17,6 +17,18 @@ export interface DigbyConfig {
 	runTimeout?: number;
 	/** Seconds before hard timeout at which a steering warning is injected (default: 60) */
 	runTimeoutWarnBeforeS?: number;
+	/**
+	 * Model to use, as "provider/modelId".
+	 * e.g. "amazon-bedrock/us.anthropic.claude-opus-5"
+	 * Defaults to "amazon-bedrock/us.anthropic.claude-sonnet-4-6".
+	 */
+	model?: string;
+	/**
+	 * Thinking/reasoning level for the model.
+	 * One of: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"
+	 * Defaults to "off".
+	 */
+	thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 }
 
 // Hot-reload: re-read digby.json at most every 2 minutes, or when mtime changes.
@@ -82,4 +94,17 @@ export function getRunTimeout(): number {
 
 export function getRunTimeoutWarnBeforeS(): number {
 	return loadConfig().runTimeoutWarnBeforeS ?? 60;
+}
+
+export const DEFAULT_MODEL = "amazon-bedrock/us.anthropic.claude-sonnet-4-6";
+
+export function getModelConfig(): { provider: string; modelId: string } {
+	const raw = loadConfig().model ?? DEFAULT_MODEL;
+	const idx = raw.indexOf("/");
+	if (idx < 0) throw new Error(`Invalid model config "${raw}" — expected "provider/modelId"`);
+	return { provider: raw.slice(0, idx), modelId: raw.slice(idx + 1) };
+}
+
+export function getThinkingLevel(): "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" {
+	return loadConfig().thinkingLevel ?? "off";
 }
