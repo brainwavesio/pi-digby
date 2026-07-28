@@ -61,13 +61,6 @@ export class WhatsAppSurface implements AgentSurface {
 
 	emitThinking(): void {
 		this.accumulatedText = THINKING_PLACEHOLDER;
-		this.enqueue(async () => {
-			try {
-				await this.client.sendMessage(this.jid, THINKING_PLACEHOLDER);
-			} catch (err) {
-				log.warn("[whatsapp-surface] emitThinking error", err instanceof Error ? err.message : String(err));
-			}
-		});
 	}
 
 	emitProgress(text: string): void {

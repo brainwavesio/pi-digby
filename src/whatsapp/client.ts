@@ -7,6 +7,7 @@ import makeWASocket, {
 import { Boom } from "@hapi/boom";
 import { mkdirSync } from "fs";
 import pino from "pino";
+import QuickLRU from "quick-lru";
 import * as log from "../log.js";
 import type { WhatsAppEvent, WhatsAppUser } from "./types.js";
 
@@ -28,7 +29,11 @@ function normalizeJid(input: string): string {
 }
 
 function sanitizeJidForPath(jid: string): string {
-	return jid.replace(/[@.]/g, "-");
+	return encodeURIComponent(jid).replace(/%/g, "_");
+}
+
+function unsanitizeJidFromPath(path: string): string {
+	return decodeURIComponent(path.replace(/_/g, "%"));
 }
 
 export class WhatsAppClient {
@@ -37,7 +42,7 @@ export class WhatsAppClient {
 	private allowFromJids: Set<string>;
 	private reconnectAttempt = 0;
 	private messageHandlers: ((event: WhatsAppEvent) => void)[] = [];
-	private seenMessageIds = new Set<string>();
+	private seenMessageIds = new QuickLRU<string, true>({ maxSize: 1000 });
 	private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 	private isShuttingDown = false;
 
@@ -125,11 +130,7 @@ export class WhatsAppClient {
 
 			const messageId = msg.key.id;
 			if (!messageId || this.seenMessageIds.has(messageId)) continue;
-			this.seenMessageIds.add(messageId);
-			if (this.seenMessageIds.size > 1000) {
-				const first = this.seenMessageIds.values().next().value;
-				if (first) this.seenMessageIds.delete(first);
-			}
+			this.seenMessageIds.set(messageId, true);
 
 			const jid = msg.key.remoteJid;
 			if (!jid) continue;
@@ -294,5 +295,5 @@ export function jidToChannelId(jid: string): string {
 
 export function channelIdToJid(channelId: string): string {
 	const path = channelId.replace(/^whatsapp:/, "");
-	return path.replace(/-s-whatsapp-net$/, "@s.whatsapp.net").replace(/-g-us$/, "@g.us");
+	return unsanitizeJidFromPath(path);
 }

@@ -1,6 +1,6 @@
 import QuickLRU from "quick-lru";
 import * as log from "../log.js";
-import type { WhatsAppClient } from "./client.js";
+import { channelIdToJid, type WhatsAppClient } from "./client.js";
 import type { WhatsAppEvent } from "./types.js";
 
 export interface WhatsAppRouterHandler {
@@ -66,12 +66,8 @@ function processOrBusy(
 			log.warn(`[${event.channel}] WhatsApp queued handler error`, err instanceof Error ? err.message : String(err));
 		});
 
-		const jid = event.channel.replace(/^whatsapp:/, "").replace(/-/g, ".");
-		const correctedJid = jid.endsWith("@g.us")
-			? jid.replace(/\.g\.us$/, "@g.us")
-			: jid.replace(/\.s\.whatsapp\.net$/, "@s.whatsapp.net");
-
-		client.sendMessage(correctedJid, "_Queued. Say `stop` to cancel the current run._").catch((err) => {
+		const jid = channelIdToJid(event.channel);
+		client.sendMessage(jid, "_Queued. Say `stop` to cancel the current run._").catch((err) => {
 			log.warn("[WhatsApp] Failed to send queued message", err instanceof Error ? err.message : String(err));
 		});
 		return;

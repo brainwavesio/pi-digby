@@ -1,5 +1,5 @@
-import { join } from "path";
 import type { LogContextScope } from "../persistence/log.js";
+import { channelIdToJid } from "./client.js";
 import type { WhatsAppEvent } from "./types.js";
 
 export interface WhatsAppConversationTarget {
@@ -13,16 +13,12 @@ export function getWhatsAppConversationTarget(
 	event: WhatsAppEvent,
 	channelDir: string,
 ): WhatsAppConversationTarget {
-	const jid = event.channel.replace(/^whatsapp:/, "").replace(/-/g, ".");
-	const isGroup = jid.endsWith("@g.us");
-	const correctedJid = isGroup
-		? jid.replace(/\.g\.us$/, "@g.us")
-		: jid.replace(/\.s\.whatsapp\.net$/, "@s.whatsapp.net");
+	const jid = channelIdToJid(event.channel);
 
 	return {
 		runnerId: event.channel,
 		sessionDir: channelDir,
-		jid: correctedJid,
+		jid,
 		logContextScope: { source: "whatsapp", kind: "chronological" },
 	};
 }
