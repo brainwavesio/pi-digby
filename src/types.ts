@@ -1,6 +1,6 @@
 export interface BotEvent {
 	type: "mention" | "dm" | "channel" | "agent_session";
-	source: "slack" | "linear";
+	source: "slack" | "linear" | "whatsapp";
 	channel: string;
 	ts: string;
 	user: string;

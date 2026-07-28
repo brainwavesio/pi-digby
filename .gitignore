@@ -31,3 +31,6 @@ data/
 plans/
 *.env
 .worktrees/
+
+# WhatsApp auth state (contains session credentials)
+whatsapp-auth/

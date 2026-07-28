@@ -11,6 +11,14 @@ export interface DigbyConfig {
 		 */
 		replyBehaviour?: Record<string, "mention" | "channel" | "thread">;
 	};
+	whatsapp?: {
+		/**
+		 * JIDs or phone numbers allowed to trigger the bot.
+		 * Phone numbers in E.164 format (with or without +) are normalised to JID format.
+		 * Examples: "+447700900000", "447700900000@s.whatsapp.net", "123456789@g.us"
+		 */
+		allowFrom?: string[];
+	};
 	/** Post tool calls/thinking to thread under bot's message (default: false) */
 	debugThreading?: boolean;
 	/** Maximum time (seconds) a single run can take before being aborted (default: 600) */
@@ -82,4 +90,8 @@ export function getRunTimeout(): number {
 
 export function getRunTimeoutWarnBeforeS(): number {
 	return loadConfig().runTimeoutWarnBeforeS ?? 60;
+}
+
+export function getWhatsAppAllowFrom(): string[] {
+	return loadConfig().whatsapp?.allowFrom ?? [];
 }
