@@ -40,5 +40,5 @@ export function loadSkills(channelDir: string, workspacePath: string): Skill[] {
 	return Array.from(skillMap.values());
 }
 
-export { formatSkillsForPrompt };
 export type { Skill };
+export { formatSkillsForPrompt };
