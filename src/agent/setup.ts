@@ -74,6 +74,11 @@ function getModelRuntime(): Promise<ModelRuntime> {
 		_modelRuntimePromise = ModelRuntime.create({
 			authPath: join(homedir(), ".pi", "mom", "auth.json"),
 		});
+		// Don't cache a rejected promise — a transient init failure would
+		// otherwise wedge every channel until the ECS task restarts.
+		_modelRuntimePromise.catch(() => {
+			_modelRuntimePromise = undefined;
+		});
 	}
 	return _modelRuntimePromise;
 }
@@ -82,19 +87,27 @@ function getModelRuntime(): Promise<ModelRuntime> {
 // Bedrock auth
 // ---------------------------------------------------------------------------
 
-async function getBedrockApiKey(): Promise<string> {
+// Boot guard only — must never feed a value into the request path. Anything
+// returned from Agent.getApiKey is forwarded as options.apiKey and the Bedrock
+// provider would treat it as an AWS_BEARER_TOKEN_BEDROCK bearer token,
+// bypassing SigV4/task-role auth. Auth resolution is ModelRuntime's job.
+function assertAwsCredentials(): void {
 	if (
 		process.env.AWS_PROFILE ||
 		(process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) ||
-		process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI // ECS task role
+		process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI || // ECS task role
+		process.env.AWS_CONTAINER_CREDENTIALS_FULL_URI ||
+		(process.env.AWS_WEB_IDENTITY_TOKEN_FILE && process.env.AWS_ROLE_ARN) ||
+		process.env.AWS_BEARER_TOKEN_BEDROCK
 	) {
-		return "<authenticated>";
+		return;
 	}
 	throw new Error(
 		"No AWS credentials found for Bedrock.\n\n" +
 			"Set AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY, AWS_PROFILE, or run on ECS with a task role.",
 	);
 }
+assertAwsCredentials();
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -229,7 +242,6 @@ export async function createChannelRunner(opts: {
 		},
 		convertToLlm,
 		streamFn: (m, ctx, opts) => modelRuntime.streamSimple(m, ctx, opts),
-		getApiKey: async (_provider: string) => getBedrockApiKey(),
 		afterToolCall: capToolResultBytes,
 	});
 
