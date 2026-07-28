@@ -6,15 +6,15 @@
  */
 
 import { type AfterToolCallContext, type AfterToolCallResult, Agent } from "@earendil-works/pi-agent-core";
-import { getModel, type ImageContent, type TextContent } from "@earendil-works/pi-ai";
+import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
+import { getBuiltinModel } from "@earendil-works/pi-ai/providers/all";
 import {
 	AgentSession,
-	AuthStorage,
 	convertToLlm,
 	createExtensionRuntime,
 	DefaultResourceLoader,
 	getAgentDir,
-	ModelRegistry,
+	ModelRuntime,
 	type ResourceLoader,
 	SessionManager,
 } from "@earendil-works/pi-coding-agent";
@@ -49,7 +49,7 @@ import { loadSkills } from "./skills.js";
 // Model
 // ---------------------------------------------------------------------------
 
-const model = getModel("amazon-bedrock", "us.anthropic.claude-sonnet-4-6");
+const model = getBuiltinModel("amazon-bedrock", "us.anthropic.claude-sonnet-4-6");
 
 // Sanity check: pi-coding-agent's threshold compaction needs a positive
 // contextWindow to decide when to compact. If this ever returns 0 (model
@@ -62,6 +62,20 @@ if (!model.contextWindow || model.contextWindow <= 0) {
 	);
 } else {
 	log.info(`Model ${model.provider}/${model.id} contextWindow=${model.contextWindow}`);
+}
+
+// ---------------------------------------------------------------------------
+// Model runtime (singleton — process-global, auth path is static)
+// ---------------------------------------------------------------------------
+
+let _modelRuntimePromise: Promise<ModelRuntime> | undefined;
+function getModelRuntime(): Promise<ModelRuntime> {
+	if (!_modelRuntimePromise) {
+		_modelRuntimePromise = ModelRuntime.create({
+			authPath: join(homedir(), ".pi", "mom", "auth.json"),
+		});
+	}
+	return _modelRuntimePromise;
 }
 
 // ---------------------------------------------------------------------------
@@ -199,6 +213,11 @@ export async function createChannelRunner(opts: {
 	});
 
 	// -----------------------------------------------------------------------
+	// Auth + Model runtime (shared singleton — see module-level getModelRuntime())
+	// -----------------------------------------------------------------------
+	const modelRuntime = await getModelRuntime();
+
+	// -----------------------------------------------------------------------
 	// Agent
 	// -----------------------------------------------------------------------
 	const agent = new Agent({
@@ -209,7 +228,8 @@ export async function createChannelRunner(opts: {
 			tools,
 		},
 		convertToLlm,
-		getApiKey: async () => getBedrockApiKey(),
+		streamFn: (m, ctx, opts) => modelRuntime.streamSimple(m, ctx, opts),
+		getApiKey: async (_provider: string) => getBedrockApiKey(),
 		afterToolCall: capToolResultBytes,
 	});
 
@@ -226,12 +246,6 @@ export async function createChannelRunner(opts: {
 		agent.state.messages = loadedSession.messages;
 		log.info(`[${channelId}] Loaded ${loadedSession.messages.length} messages from context.jsonl`);
 	}
-
-	// -----------------------------------------------------------------------
-	// Auth + Model registry
-	// -----------------------------------------------------------------------
-	const authStorage = AuthStorage.create(join(homedir(), ".pi", "mom", "auth.json"));
-	const modelRegistry = ModelRegistry.create(authStorage);
 
 	// -----------------------------------------------------------------------
 	// MCP adapter via jiti (loads .ts source without compiling)
@@ -293,7 +307,7 @@ export async function createChannelRunner(opts: {
 		sessionManager,
 		settingsManager,
 		cwd: workingDir,
-		modelRegistry,
+		modelRuntime,
 		resourceLoader: resourceLoader as ResourceLoader,
 		baseToolsOverride,
 	});

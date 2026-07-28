@@ -124,7 +124,7 @@ export class EventsWatcherImpl implements EventsWatcher {
 		this.fsWatcher = watchWithErrorHandler(
 			this.eventsDir,
 			(_type, filename) => {
-				if (!filename || !filename.endsWith(".json")) return;
+				if (!filename?.endsWith(".json")) return;
 				this.debounce(filename, () => this.handleFileChange(filename));
 			},
 			() => this.handleFsWatcherError(),
