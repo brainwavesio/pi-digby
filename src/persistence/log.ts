@@ -23,7 +23,8 @@ export interface LogMessage {
 export type LogContextScope =
 	| { source: "linear"; kind: "chronological" }
 	| { source: "slack"; kind: "channel" }
-	| { source: "slack"; kind: "thread"; rootTs: string };
+	| { source: "slack"; kind: "thread"; rootTs: string }
+	| { source: "whatsapp"; kind: "chronological" };
 
 export interface SelectedContextMessage {
 	id: string;
@@ -71,13 +72,13 @@ function displayName(logMsg: LogMessage): string {
 	return logMsg.userName || logMsg.user || "unknown";
 }
 
-export function formatLogMessageForContext(source: "linear" | "slack", logMsg: LogMessage): string {
+export function formatLogMessageForContext(source: "linear" | "slack" | "whatsapp", logMsg: LogMessage): string {
 	const ts = logMsg.ts || "unknown";
 	const attrs = [`ts="${escapeAttribute(ts)}"`];
 	if (source === "slack" && logMsg.threadTs) attrs.push(`thread_ts="${escapeAttribute(logMsg.threadTs)}"`);
 	const user = displayName(logMsg);
 	attrs.push(`user="${escapeAttribute(user)}"`);
-	const tag = source === "slack" ? "slack_message" : "linear_message";
+	const tag = source === "slack" ? "slack_message" : source === "whatsapp" ? "whatsapp_message" : "linear_message";
 	return `<${tag} ${attrs.join(" ")}>\n[${user}]: ${logMsg.text || ""}\n</${tag}>`;
 }
 
@@ -249,12 +250,21 @@ function selectLinearMessages(messages: LogMessage[], currentTs: string): Select
 		.map((logMsg) => contextMessageFromLog("linear", logMsg));
 }
 
+function selectWhatsAppMessages(messages: LogMessage[], currentTs: string): SelectedContextMessage[] {
+	return sortLogMessages(messages)
+		.filter((logMsg) => isBeforeCurrent(logMsg, currentTs))
+		.map((logMsg) => contextMessageFromLog("whatsapp", logMsg));
+}
+
 export function selectLogMessagesForContext(
 	messages: LogMessage[],
 	options: SelectLogMessagesOptions,
 ): SelectedContextMessage[] {
 	if (options.scope.source === "linear") {
 		return selectLinearMessages(messages, options.currentTs);
+	}
+	if (options.scope.source === "whatsapp") {
+		return selectWhatsAppMessages(messages, options.currentTs);
 	}
 	const dedupedMessages = dedupeLogMessagesByTs(messages);
 	if (options.scope.kind === "channel") {
@@ -378,7 +388,7 @@ export function syncLogToContext(
  */
 function normalizeMessageText(text: string): string {
 	let normalized = text.replace(/^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}\] /, "");
-	const wrappedMessage = normalized.match(/^<((?:slack|linear)_message)\b[^>]*>\n([\s\S]*?)\n<\/\1>/);
+	const wrappedMessage = normalized.match(/^<((?:slack|linear|whatsapp)_message)\b[^>]*>\n([\s\S]*?)\n<\/\1>/);
 	if (wrappedMessage) {
 		normalized = wrappedMessage[2];
 	}
@@ -401,6 +411,9 @@ function extractContextIds(text: string): string[] {
 	}
 	for (const match of text.matchAll(/<linear_message\s+[^>]*ts="([^"]+)"/g)) {
 		ids.push(`linear:${match[1]}`);
+	}
+	for (const match of text.matchAll(/<whatsapp_message\s+[^>]*ts="([^"]+)"/g)) {
+		ids.push(`whatsapp:${match[1]}`);
 	}
 	for (const match of text.matchAll(/<slack_thread_boundary\s+root_ts="([^"]+)"/g)) {
 		ids.push(`slack-thread-boundary:${match[1]}`);

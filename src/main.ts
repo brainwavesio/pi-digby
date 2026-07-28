@@ -601,6 +601,150 @@ if (LINEAR_API_KEY && LINEAR_WEBHOOK_SECRET) {
 	log.info("Linear agent disabled (missing LINEAR_API_KEY/LINEAR_WEBHOOK_SECRET)");
 }
 
+// ============================================================================
+// WhatsApp agent (optional — only if enabled and auth dir configured)
+// ============================================================================
+
+const DIGBY_WHATSAPP_ENABLED = process.env.DIGBY_WHATSAPP_ENABLED === "true";
+const DIGBY_WHATSAPP_AUTH_DIR = process.env.DIGBY_WHATSAPP_AUTH_DIR || join(workingDir, "whatsapp-auth");
+
+if (DIGBY_WHATSAPP_ENABLED) {
+	const { getWhatsAppAllowFrom } = await import("./config.js");
+	const { WhatsAppClient } = await import("./whatsapp/client.js");
+	const { getWhatsAppConversationTarget } = await import("./whatsapp/conversation.js");
+	const { setupWhatsAppRouter, type WhatsAppRouterHandler } = await import("./whatsapp/router.js");
+	const { WhatsAppSurface } = await import("./surface/whatsapp.js");
+	type WhatsAppEvent = BotEvent;
+
+	const whatsappClient = new WhatsAppClient({
+		authDir: DIGBY_WHATSAPP_AUTH_DIR,
+		allowFrom: getWhatsAppAllowFrom(),
+	});
+
+	async function runWhatsAppEvent(event: WhatsAppEvent, options: { logTrigger?: boolean } = {}): Promise<void> {
+		const state = getChannelRunState(event.channel);
+		const conversation = getWhatsAppConversationTarget(event, state.channelState.channelDir);
+		const runnerId = conversation.runnerId;
+		const lane = getLaneRunState(state, runnerId);
+
+		lane.running = true;
+		lane.acceptingFollowUps = false;
+		lane.activeRunner = undefined;
+
+		const stats = createRunStats();
+		const ctx = new WhatsAppSurface(whatsappClient, event.channel, stats);
+
+		try {
+			if (options.logTrigger !== false) {
+				state.channelState.logUserMessage(event);
+			}
+
+			const runner = await getOrCreateRunner({
+				runnerId,
+				channelId: event.channel,
+				channelDir: state.channelState.channelDir,
+				sessionDir: conversation.sessionDir,
+				workingDir,
+			});
+
+			lane.activeRunner = runner;
+			if (lane.stopRequested) {
+				runner.abort();
+			}
+			lane.acceptingFollowUps = true;
+
+			log.info(`[${event.channel}] Starting WhatsApp run: ${event.text.substring(0, 50)}`);
+
+			ctx.emitThinking();
+
+			const result = await runner.run(ctx, event, state.channelState, [], [], undefined, stats, conversation.logContextScope);
+
+			if (result.stopReason === "aborted" && lane.stopRequested) {
+				log.info(`[${event.channel}] WhatsApp run stopped`);
+			}
+		} catch (err) {
+			const errMsg = err instanceof Error ? err.message : String(err);
+			log.warn(`[${event.channel}] WhatsApp run error`, errMsg);
+			ctx.reject(`Something went wrong: ${errMsg.substring(0, 500)}`);
+		} finally {
+			ctx.resolve();
+			await ctx.flush();
+
+			const finalText = ctx.finalText;
+			if (finalText && finalText !== THINKING_PLACEHOLDER && !ctx.wasDeleted) {
+				state.channelState.logBotResponse(finalText, String(Date.now() / 1000));
+			}
+
+			lane.acceptingFollowUps = false;
+			const queuedFollowUps = lane.followUps.drain(runnerId);
+			if (queuedFollowUps.length > 0) {
+				const trigger = createQueuedFollowUpTrigger(queuedFollowUps);
+				log.info(`[${event.channel}] Scheduling ${queuedFollowUps.length} queued WhatsApp follow-up message(s)`);
+				lane.queue.enqueue(() => runWhatsAppEvent(trigger, { logTrigger: false }));
+			}
+
+			lane.running = false;
+			lane.activeRunner = undefined;
+			lane.stopRequested = false;
+			lane.stopMessageTs = undefined;
+
+			await evictRunner(runnerId);
+		}
+	}
+
+	async function enqueueWhatsAppEvent(event: WhatsAppEvent): Promise<void> {
+		const state = getChannelRunState(event.channel);
+		const conversation = getWhatsAppConversationTarget(event, state.channelState.channelDir);
+		const runnerId = conversation.runnerId;
+		const lane = getLaneRunState(state, runnerId);
+
+		if (lane.running && lane.acceptingFollowUps) {
+			state.channelState.logUserMessage(event);
+			const count = lane.followUps.enqueue(runnerId, event);
+			log.info(`[${event.channel}] Queued WhatsApp follow-up ${count}`);
+			return;
+		}
+
+		lane.queue.enqueue(() => runWhatsAppEvent(event));
+	}
+
+	const whatsappHandler: WhatsAppRouterHandler = {
+		isBusy(event: WhatsAppEvent): boolean {
+			const state = getChannelRunState(event.channel);
+			const conversation = getWhatsAppConversationTarget(event, state.channelState.channelDir);
+			return isLaneBusy(state.lanes.get(conversation.runnerId));
+		},
+
+		async handleEvent(event: WhatsAppEvent): Promise<void> {
+			await enqueueWhatsAppEvent(event);
+		},
+
+		async handleStop(event: WhatsAppEvent): Promise<void> {
+			const state = getChannelRunState(event.channel);
+			const conversation = getWhatsAppConversationTarget(event, state.channelState.channelDir);
+			const lane = getLaneRunState(state, conversation.runnerId);
+			if (isLaneBusy(lane)) {
+				lane.stopRequested = true;
+				lane.activeRunner?.abort();
+				await whatsappClient.sendMessage(conversation.jid, "_Stopping..._");
+			} else {
+				await whatsappClient.sendMessage(conversation.jid, "_Nothing running_");
+			}
+		},
+
+		logMessage(event: WhatsAppEvent): void {
+			const state = getChannelRunState(event.channel);
+			state.channelState.logUserMessage(event);
+		},
+	};
+
+	await whatsappClient.start();
+	setupWhatsAppRouter(whatsappClient, whatsappHandler, startupTs);
+	log.info("WhatsApp agent enabled");
+} else {
+	log.info("WhatsApp agent disabled (DIGBY_WHATSAPP_ENABLED not set)");
+}
+
 log.info("Ready");
 
 // ============================================================================

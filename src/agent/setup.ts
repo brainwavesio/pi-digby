@@ -661,6 +661,9 @@ function defaultLogContextScope(event: BotEvent): LogContextScope {
 	if (event.source === "linear") {
 		return { source: "linear", kind: "chronological" };
 	}
+	if (event.source === "whatsapp") {
+		return { source: "whatsapp", kind: "chronological" };
+	}
 	if (event.threadTs) {
 		return { source: "slack", kind: "thread", rootTs: event.threadTs };
 	}
