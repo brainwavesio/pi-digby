@@ -7,7 +7,7 @@
 
 import { type AfterToolCallContext, type AfterToolCallResult, Agent } from "@earendil-works/pi-agent-core";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
-import { getBuiltinModel } from "@earendil-works/pi-ai/providers/all";
+import { type BuiltinProvider, getBuiltinModel } from "@earendil-works/pi-ai/providers/all";
 import {
 	AgentSession,
 	convertToLlm,
@@ -25,7 +25,7 @@ import { homedir } from "os";
 import { dirname, join } from "path";
 import type { RunStats } from "../channel/run-stats.js";
 import type { ChannelState } from "../channel/state.js";
-import { getRunTimeout, getRunTimeoutWarnBeforeS } from "../config.js";
+import { getModelConfig, getRunTimeout, getRunTimeoutWarnBeforeS, getThinkingLevel } from "../config.js";
 import * as log from "../log.js";
 import {
 	createDigbySettingsManager,
@@ -49,19 +49,22 @@ import { loadSkills } from "./skills.js";
 // Model
 // ---------------------------------------------------------------------------
 
-const model = getBuiltinModel("amazon-bedrock", "us.anthropic.claude-sonnet-4-6");
-
-// Sanity check: pi-coding-agent's threshold compaction needs a positive
-// contextWindow to decide when to compact. If this ever returns 0 (model
-// metadata missing or renamed upstream) we lose proactive compaction and
-// risk recurring the D0AADDL2LCW incident. Fail loud at boot.
-if (!model.contextWindow || model.contextWindow <= 0) {
-	log.warn(
-		`Model ${model.provider}/${model.id} has no contextWindow (${model.contextWindow}). ` +
-			"Threshold compaction will not trigger reliably — verify pi-ai model registry.",
-	);
-} else {
-	log.info(`Model ${model.provider}/${model.id} contextWindow=${model.contextWindow}`);
+function resolveModel() {
+	const { provider, modelId } = getModelConfig();
+	const m = getBuiltinModel(provider as BuiltinProvider, modelId as never);
+	// Sanity check: pi-coding-agent's threshold compaction needs a positive
+	// contextWindow to decide when to compact. If this ever returns 0 (model
+	// metadata missing or renamed upstream) we lose proactive compaction and
+	// risk recurring the D0AADDL2LCW incident. Fail loud at boot.
+	if (!m.contextWindow || m.contextWindow <= 0) {
+		log.warn(
+			`Model ${m.provider}/${m.id} has no contextWindow (${m.contextWindow}). ` +
+				"Threshold compaction will not trigger reliably — verify pi-ai model registry.",
+		);
+	} else {
+		log.info(`Model ${m.provider}/${m.id} contextWindow=${m.contextWindow}`);
+	}
+	return m;
 }
 
 // ---------------------------------------------------------------------------
@@ -236,8 +239,8 @@ export async function createChannelRunner(opts: {
 	const agent = new Agent({
 		initialState: {
 			systemPrompt,
-			model,
-			thinkingLevel: "off",
+			model: resolveModel(),
+			thinkingLevel: getThinkingLevel(),
 			tools,
 		},
 		convertToLlm,
