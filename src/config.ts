@@ -1,5 +1,6 @@
 import { readFileSync, statSync } from "fs";
 import { join } from "path";
+import * as log from "./log.js";
 
 export interface DigbyConfig {
 	slack?: {
@@ -97,14 +98,25 @@ export function getRunTimeoutWarnBeforeS(): number {
 }
 
 export const DEFAULT_MODEL = "amazon-bedrock/us.anthropic.claude-sonnet-4-6";
+const DEFAULT_THINKING_LEVEL = "off" as const;
+const VALID_THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
 export function getModelConfig(): { provider: string; modelId: string } {
 	const raw = loadConfig().model ?? DEFAULT_MODEL;
 	const idx = raw.indexOf("/");
-	if (idx < 0) throw new Error(`Invalid model config "${raw}" — expected "provider/modelId"`);
+	if (idx < 0) {
+		log.warn(`Invalid model config "${raw}" — expected "provider/modelId". Falling back to default.`);
+		const fallbackIdx = DEFAULT_MODEL.indexOf("/");
+		return { provider: DEFAULT_MODEL.slice(0, fallbackIdx), modelId: DEFAULT_MODEL.slice(fallbackIdx + 1) };
+	}
 	return { provider: raw.slice(0, idx), modelId: raw.slice(idx + 1) };
 }
 
 export function getThinkingLevel(): "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" {
-	return loadConfig().thinkingLevel ?? "off";
+	const level = loadConfig().thinkingLevel;
+	if (level !== undefined && !VALID_THINKING_LEVELS.has(level)) {
+		log.warn(`Invalid thinkingLevel "${level}" in digby.json. Falling back to "${DEFAULT_THINKING_LEVEL}".`);
+		return DEFAULT_THINKING_LEVEL;
+	}
+	return level ?? DEFAULT_THINKING_LEVEL;
 }
