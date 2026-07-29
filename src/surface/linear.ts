@@ -34,12 +34,12 @@ export class LinearSurface implements AgentSurface {
 		this.enqueue(() => this.client.emitThought(this.sessionId, "Picking up this issue..."));
 	}
 
-	emitProgress(text: string): void {
-		// Persistent: progress lines are the headline timeline of the session
-		// (tool starts, retries, compaction, errors). Each one stacks rather
-		// than replacing the previous, so the user can scroll back through
-		// what the agent actually did.
-		this.enqueue(() => this.client.emitThought(this.sessionId, text, false));
+	emitToolStart(_toolCallId: string, _toolName: string, _label: string): void {
+		// no-op: Linear surface doesn't show per-tool progress inline
+	}
+
+	emitToolEnd(_toolCallId: string, _durationMs: number, _isError: boolean): void {
+		// no-op: Linear surface doesn't show per-tool progress inline
 	}
 
 	emitResponse(text: string): void {

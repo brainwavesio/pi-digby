@@ -1,12 +1,30 @@
+import type { KnownBlock } from "@slack/web-api";
+
+export type MessagePayload = string | { text: string; blocks: KnownBlock[] };
+
+export interface MessageTransport {
+	postMessage(channel: string, payload: MessagePayload, threadTs?: string): Promise<string>;
+	updateMessage(channel: string, ts: string, payload: MessagePayload): Promise<void>;
+	deleteMessage(channel: string, ts: string): Promise<void>;
+	addReaction(channel: string, ts: string, emoji: string): Promise<void>;
+	uploadFile(channel: string, filePath: string, title?: string, threadTs?: string): Promise<void>;
+	uploadContent(channel: string, content: string, filename: string, title?: string, threadTs?: string): Promise<void>;
+	setThreadStatus(channel: string, threadTs: string, status: string, loadingMessages?: string[]): Promise<void>;
+	setTitle(channel: string, threadTs: string, title: string): Promise<void>;
+}
+
 /** Surface through which the agent communicates with the user. */
 export interface AgentSurface {
 	/** Agent is starting work. */
 	emitThinking(): void;
 
-	/** Tool/step progress (tool labels, retry notices). Appended to output stream. */
-	emitProgress(text: string): void;
+	/** Tool call started. */
+	emitToolStart(toolCallId: string, toolName: string, label: string): void;
 
-	/** Final response text. Replaces all prior progress. */
+	/** Tool call completed. */
+	emitToolEnd(toolCallId: string, durationMs: number, isError: boolean): void;
+
+	/** Final response text. */
 	emitResponse(text: string): void;
 
 	/** Supplementary detail (reasoning, debug info). Collapsed/threaded. */
@@ -38,4 +56,4 @@ export interface AgentSurface {
 	readonly wasDeleted: boolean;
 }
 
-export const THINKING_PLACEHOLDER = "\ud83e\udd14 _Thinking_";
+export const THINKING_PLACEHOLDER = "🤔 _Thinking_";
