@@ -16,15 +16,19 @@ if [ ! -f /data/.pi/mcp.json ]; then
   cp /app/.pi/mcp.json /data/.pi/mcp.json
 fi
 
-# Seed bundled skills without overwriting skills Digby has edited on EFS.
+# Install or upgrade the bundled D1 skill. Only files owned by this bundled
+# skill are changed; other workspace skills and files remain untouched.
 mkdir -p /data/skills
-for bundled_skill in /app/skills/*; do
-  [ -e "$bundled_skill" ] || continue
-  skill_name=$(basename "$bundled_skill")
-  if [ ! -e "/data/skills/$skill_name" ]; then
-    cp -R "$bundled_skill" "/data/skills/$skill_name"
-  fi
-done
+bundled_d1_skill=/app/skills/cloudflare-d1
+installed_d1_skill=/data/skills/cloudflare-d1
+if ! cmp -s "$bundled_d1_skill/.version" "$installed_d1_skill/.version"; then
+  mkdir -p "$installed_d1_skill"
+  cp "$bundled_d1_skill/SKILL.md" "$installed_d1_skill/SKILL.md"
+  cp "$bundled_d1_skill/users.sh" "$installed_d1_skill/users.sh"
+  chmod +x "$installed_d1_skill/users.sh"
+  rm -f "$installed_d1_skill/query.sh" "$installed_d1_skill/validate_sql.py"
+  cp "$bundled_d1_skill/.version" "$installed_d1_skill/.version"
+fi
 
 # Substitute env vars into MCP config URLs
 if [ -n "$EXA_API_KEY" ]; then
