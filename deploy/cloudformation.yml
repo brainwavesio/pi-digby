@@ -457,12 +457,12 @@ Resources:
                   - backup:Describe*
                 Resource: "*"
               # Secrets Manager: CF needs GetSecretValue to diff the Secret resource
-              # during stack updates. Write permissions are intentionally NOT granted —
-              # secret values are managed via CLI, not CloudFormation (see Secret
-              # resource definition above).
+              # during stack updates. The deploy workflow may also merge externally
+              # managed integration credentials into this one runtime secret.
               - Effect: Allow
                 Action:
                   - secretsmanager:GetSecretValue
+                  - secretsmanager:PutSecretValue
                 Resource: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pi-digby/env-*"
               # Scoped write actions for pi-digby resources
               - Effect: Allow
