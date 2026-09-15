@@ -16,6 +16,26 @@ if [ ! -f /data/.pi/mcp.json ]; then
   cp /app/.pi/mcp.json /data/.pi/mcp.json
 fi
 
+# Install or upgrade the bundled D1 skill. Only files owned by this bundled
+# skill are changed; other workspace skills and files remain untouched.
+mkdir -p /data/skills
+bundled_d1_skill=/app/skills/cloudflare-d1
+installed_d1_skill=/data/skills/cloudflare-d1
+if ! cmp -s "$bundled_d1_skill/.version" "$installed_d1_skill/.version"; then
+  mkdir -p "$installed_d1_skill"
+  if ! (
+    cp "$bundled_d1_skill/SKILL.md" "$installed_d1_skill/SKILL.md" &&
+    cp "$bundled_d1_skill/users.sh" "$installed_d1_skill/users.sh" &&
+    chmod +x "$installed_d1_skill/users.sh" &&
+    rm -f "$installed_d1_skill/query.sh" "$installed_d1_skill/validate_sql.py" &&
+    cp "$bundled_d1_skill/.version" "$installed_d1_skill/.version.next" &&
+    mv "$installed_d1_skill/.version.next" "$installed_d1_skill/.version"
+  ); then
+    echo "Failed to install the bundled Cloudflare D1 skill" >&2
+    exit 1
+  fi
+fi
+
 # Substitute env vars into MCP config URLs
 if [ -n "$EXA_API_KEY" ]; then
   sed -i "s|EXA_API_KEY_PLACEHOLDER|$EXA_API_KEY|g" /data/.pi/mcp.json
