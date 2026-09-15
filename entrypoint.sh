@@ -16,6 +16,15 @@ if [ ! -f /data/.pi/mcp.json ]; then
   cp /app/.pi/mcp.json /data/.pi/mcp.json
 fi
 
+# Seed bundled skills without overwriting skills Digby has edited on EFS.
+mkdir -p /data/skills
+for bundled_skill in /app/skills/*; do
+  skill_name=$(basename "$bundled_skill")
+  if [ ! -e "/data/skills/$skill_name" ]; then
+    cp -R "$bundled_skill" "/data/skills/$skill_name"
+  fi
+done
+
 # Substitute env vars into MCP config URLs
 if [ -n "$EXA_API_KEY" ]; then
   sed -i "s|EXA_API_KEY_PLACEHOLDER|$EXA_API_KEY|g" /data/.pi/mcp.json

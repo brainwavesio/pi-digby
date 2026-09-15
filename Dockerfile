@@ -84,6 +84,7 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package.json ./
 COPY .pi/ .pi/
+COPY skills/cloudflare-d1/ skills/cloudflare-d1/
 COPY entrypoint.sh ./
 
 RUN mkdir -p /data && chmod +x entrypoint.sh

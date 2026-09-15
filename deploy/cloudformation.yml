@@ -571,6 +571,10 @@ Resources:
               ValueFrom: !Sub "${Secret}:LINEAR_WEBHOOK_SECRET::"
             - Name: CLOUDFLARE_TUNNEL_TOKEN
               ValueFrom: !Sub "${Secret}:CLOUDFLARE_TUNNEL_TOKEN::"
+            - Name: CLOUDFLARE_ACCOUNT_ID
+              ValueFrom: !Sub "${Secret}:CLOUDFLARE_ACCOUNT_ID::"
+            - Name: CLOUDFLARE_API_TOKEN
+              ValueFrom: !Sub "${Secret}:CLOUDFLARE_API_TOKEN::"
             # Wiki (/w/*) — sign-in-with-Slack OAuth + signed session cookie.
             # All four must be set together; missing any disables /w/*.
             - Name: DIGBY_COOKIE_SECRET

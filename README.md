@@ -169,6 +169,8 @@ All secrets are stored in AWS Secrets Manager as `pi-digby/env` (JSON). The ECS 
 | `DIGBY_SLACK_CLIENT_SECRET` | No | Slack OAuth client secret (enables wiki sign-in) |
 | `DIGBY_SLACK_TEAM_ID` | No | Slack workspace ID (`T…`) — wiki ACL |
 | `CLOUDFLARE_TUNNEL_TOKEN` | No | Cloudflare Tunnel token — exposes the wiki without a public load balancer |
+| `CLOUDFLARE_ACCOUNT_ID` | No | Cloudflare account containing D1 databases used by installed skills |
+| `CLOUDFLARE_API_TOKEN` | No | Read-only Cloudflare D1 token. The deploy workflow validates and syncs this from the matching GitHub Actions secret. |
 
 > **Note:** Bedrock authentication uses the ECS task IAM role — no `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` needed for the bot itself.
 
