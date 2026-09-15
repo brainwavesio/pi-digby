@@ -4,5 +4,6 @@ dist
 docs
 deploy
 *.md
+!skills/cloudflare-d1/SKILL.md
 !package.json
 !package-lock.json

@@ -19,6 +19,7 @@ fi
 # Seed bundled skills without overwriting skills Digby has edited on EFS.
 mkdir -p /data/skills
 for bundled_skill in /app/skills/*; do
+  [ -e "$bundled_skill" ] || continue
   skill_name=$(basename "$bundled_skill")
   if [ ! -e "/data/skills/$skill_name" ]; then
     cp -R "$bundled_skill" "/data/skills/$skill_name"
