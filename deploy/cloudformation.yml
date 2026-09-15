@@ -35,8 +35,15 @@ Parameters:
     Description: "Public origin the wiki is served from, e.g. https://digby.example.com — no trailing slash. Used to build the Slack OAuth redirect_uri, so it must match a redirect URL registered on the Slack app. Leave empty to run with the wiki (/w/*) disabled."
     Default: ""
 
+  CloudflareD1Enabled:
+    Type: String
+    Description: "Whether organisation-managed Cloudflare D1 credentials are present in pi-digby/env and should be injected into the container."
+    Default: "false"
+    AllowedValues: ["true", "false"]
+
 Conditions:
   ShouldCreateOIDCProvider: !Equals [!Ref CreateOIDCProvider, "true"]
+  HasCloudflareD1: !Equals [!Ref CloudflareD1Enabled, "true"]
 
 Resources:
   # ===========================================================================
@@ -571,10 +578,16 @@ Resources:
               ValueFrom: !Sub "${Secret}:LINEAR_WEBHOOK_SECRET::"
             - Name: CLOUDFLARE_TUNNEL_TOKEN
               ValueFrom: !Sub "${Secret}:CLOUDFLARE_TUNNEL_TOKEN::"
-            - Name: CLOUDFLARE_ACCOUNT_ID
-              ValueFrom: !Sub "${Secret}:CLOUDFLARE_ACCOUNT_ID::"
-            - Name: CLOUDFLARE_API_TOKEN
-              ValueFrom: !Sub "${Secret}:CLOUDFLARE_API_TOKEN::"
+            - !If
+              - HasCloudflareD1
+              - Name: CLOUDFLARE_ACCOUNT_ID
+                ValueFrom: !Sub "${Secret}:CLOUDFLARE_ACCOUNT_ID::"
+              - !Ref AWS::NoValue
+            - !If
+              - HasCloudflareD1
+              - Name: CLOUDFLARE_API_TOKEN
+                ValueFrom: !Sub "${Secret}:CLOUDFLARE_API_TOKEN::"
+              - !Ref AWS::NoValue
             # Wiki (/w/*) — sign-in-with-Slack OAuth + signed session cookie.
             # All four must be set together; missing any disables /w/*.
             - Name: DIGBY_COOKIE_SECRET

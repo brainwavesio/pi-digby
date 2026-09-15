@@ -45,6 +45,7 @@ jobs:
           trap 'rm -f "$response_file" "$runtime_secret_file" "$updated_secret_file"' EXIT
 
           if [ -n "$CLOUDFLARE_ACCOUNT_ID" ] && [ -n "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "CLOUDFLARE_D1_ENABLED=true" >>"$GITHUB_ENV"
             curl --fail-with-body --silent --show-error \
               --connect-timeout 10 --max-time 30 \
               --header "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
@@ -54,6 +55,9 @@ jobs:
           elif [ -n "$CLOUDFLARE_ACCOUNT_ID" ] || [ -n "$CLOUDFLARE_API_TOKEN" ]; then
             echo "Both Cloudflare D1 secrets must be configured together" >&2
             exit 1
+          else
+            echo "CLOUDFLARE_D1_ENABLED=false" >>"$GITHUB_ENV"
+            exit 0
           fi
 
           aws secretsmanager get-secret-value \
@@ -106,5 +110,6 @@ jobs:
               GitHubRepository=${{ github.repository }} \
               ImageTag=${{ github.sha }} \
               DesiredCount=1 \
+              CloudflareD1Enabled="$CLOUDFLARE_D1_ENABLED" \
               DatadogSite="${{ vars.DD_SITE || 'datadoghq.com' }}" \
               WikiBaseUrl="${{ vars.WIKI_BASE_URL }}"
