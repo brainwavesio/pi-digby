@@ -385,9 +385,9 @@ Resources:
                 # new format, so the trust policy must accept both.
                 # https://github.blog/changelog/2026-04-23-immutable-subject-claims-for-github-actions-oidc-tokens/
                 token.actions.githubusercontent.com:sub:
-                  - !Sub "repo:${GitHubRepository}:ref:refs/heads/main"
+                  - !Sub "repo:${GitHubRepository}:*"
                   - !Sub
-                    - "repo:${Owner}@*/${Repo}@*:ref:refs/heads/main"
+                    - "repo:${Owner}@*/${Repo}@*:*"
                     - Owner: !Select [0, !Split ["/", !Ref GitHubRepository]]
                       Repo: !Select [1, !Split ["/", !Ref GitHubRepository]]
               StringEquals:
@@ -452,6 +452,12 @@ Resources:
                   - iam:DeleteRolePolicy
                   - iam:TagRole
                 Resource: !Sub "arn:aws:iam::${AWS::AccountId}:role/pi-digby-*"
+              # Bootstrap trust-policy hardening in a separate deployment: the
+              # deploy role must first be allowed to tighten its own OIDC trust.
+              - Effect: Allow
+                Action:
+                  - iam:UpdateAssumeRolePolicy
+                Resource: !Sub "arn:aws:iam::${AWS::AccountId}:role/pi-digby-github-deploy"
               # Read-only describe across services (required by CF to diff state)
               - Effect: Allow
                 Action:
