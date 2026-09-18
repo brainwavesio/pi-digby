@@ -18,6 +18,7 @@ const SECRET = "test-link-cache-secret";
 // biome-ignore lint/suspicious/noExplicitAny: minimal node http stubs
 let handler: any;
 let root: string;
+let userActive = true;
 
 beforeAll(async () => {
 	root = mkdtempSync(join(tmpdir(), "digby-link-cache-"));
@@ -31,6 +32,7 @@ beforeAll(async () => {
 	handler = await createWikiHandler({
 		workingDir: root,
 		cookieSecret: SECRET,
+		isUserActive: async () => userActive,
 		slack: {
 			clientId: "X",
 			clientSecret: "Y",
@@ -46,6 +48,7 @@ afterEach(() => {
 
 beforeEach(() => {
 	__clearLinkExistsCache();
+	userActive = true;
 });
 
 function makeReq(url: string, cookie: string): {
@@ -110,5 +113,26 @@ describe("cachedLinkExists", () => {
 		await handler(req, res);
 		expect(res.statusCode).toBe(200);
 		expect(res.body).toContain("wiki-broken");
+	});
+});
+
+describe("wiki session membership", () => {
+	it("rejects a signed cookie when Slack says the user is inactive", async () => {
+		userActive = false;
+		const cookie = signCookie({ sub: "U1", team: "T1", exp: Date.now() + 60_000 }, SECRET);
+		const req = makeReq("/w/page.md", cookie);
+		const res = makeRes();
+		await handler(req, res);
+		expect(res.statusCode).toBe(302);
+		expect(res.headers["Set-Cookie"]).toMatch(/Max-Age=0/);
+	});
+
+	it("rejects a signed cookie for a different Slack workspace", async () => {
+		const cookie = signCookie({ sub: "U1", team: "T_OTHER", exp: Date.now() + 60_000 }, SECRET);
+		const req = makeReq("/w/page.md", cookie);
+		const res = makeRes();
+		await handler(req, res);
+		expect(res.statusCode).toBe(302);
+		expect(res.headers["Set-Cookie"]).toMatch(/Max-Age=0/);
 	});
 });

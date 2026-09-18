@@ -27,6 +27,7 @@ const RAW_MAX_BYTES = 50 * 1024 * 1024; // 50 MB hard cap
 export type RawHandlerOptions = {
 	workingDir: string;
 	cookieSecret: string;
+	isUserActive: (userId: string) => Promise<boolean>;
 	slack: {
 		clientId: string;
 		clientSecret: string;
@@ -114,6 +115,12 @@ async function handleAuthCallback(opts: RawHandlerOptions, url: URL, res: Server
 		res.end();
 		return;
 	}
+	if (!(await opts.isUserActive(identity.userId))) {
+		log.warn(`[raw] auth-callback inactive user: ${identity.userId}`);
+		res.writeHead(302, { Location: "/r/", "X-Robots-Tag": "noindex, nofollow" });
+		res.end();
+		return;
+	}
 	log.info(`[raw] auth-callback ok user=${identity.userId} → ${verified.returnTo}`);
 	res.writeHead(302, {
 		Location: verified.returnTo,
@@ -140,7 +147,8 @@ function handleLogout(res: ServerResponse): void {
 async function handleRaw(opts: RawHandlerOptions, url: URL, req: IncomingMessage, res: ServerResponse): Promise<void> {
 	const cookieVal = readCookie(req.headers.cookie);
 	const auth = cookieVal ? verifyCookie(cookieVal, opts.cookieSecret) : null;
-	const ok = auth?.ok === true;
+	const ok =
+		auth?.ok === true && auth.payload.team === opts.slack.teamId && (await opts.isUserActive(auth.payload.sub));
 
 	const requestedPath = url.pathname.startsWith("/r/") ? url.pathname.slice("/r/".length) : "";
 
