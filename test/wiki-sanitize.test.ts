@@ -17,6 +17,7 @@ beforeAll(async () => {
 	handler = await createWikiHandler({
 		workingDir: "/tmp",
 		cookieSecret: SECRET,
+		isUserActive: async () => true,
 		slack: {
 			clientId: "X",
 			clientSecret: "Y",

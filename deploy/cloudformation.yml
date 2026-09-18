@@ -385,9 +385,9 @@ Resources:
                 # new format, so the trust policy must accept both.
                 # https://github.blog/changelog/2026-04-23-immutable-subject-claims-for-github-actions-oidc-tokens/
                 token.actions.githubusercontent.com:sub:
-                  - !Sub "repo:${GitHubRepository}:*"
+                  - !Sub "repo:${GitHubRepository}:ref:refs/heads/main"
                   - !Sub
-                    - "repo:${Owner}@*/${Repo}@*:*"
+                    - "repo:${Owner}@*/${Repo}@*:ref:refs/heads/main"
                     - Owner: !Select [0, !Split ["/", !Ref GitHubRepository]]
                       Repo: !Select [1, !Split ["/", !Ref GitHubRepository]]
               StringEquals:

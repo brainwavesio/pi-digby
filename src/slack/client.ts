@@ -2,8 +2,11 @@ import { SocketModeClient } from "@slack/socket-mode";
 import { WebClient } from "@slack/web-api";
 import { readFileSync } from "fs";
 import { basename } from "path";
+import QuickLRU from "quick-lru";
 import * as log from "../log.js";
 import type { SlackChannel, SlackUser } from "./types.js";
+
+const ACTIVE_USER_CACHE_TTL_MS = 5 * 60 * 1000;
 
 // ============================================================================
 // Retry helper
@@ -52,6 +55,7 @@ export class SlackClient {
 
 	private users = new Map<string, SlackUser>();
 	private channels = new Map<string, SlackChannel>();
+	private activeUsers = new QuickLRU<string, { active: boolean; expiresAt: number }>({ maxSize: 500 });
 
 	// Cache: thread root ts → whether bot owns/was mentioned in root
 	private botThreads = new Map<string, boolean>();
@@ -194,6 +198,31 @@ export class SlackClient {
 
 	getAllChannels(): SlackChannel[] {
 		return Array.from(this.channels.values());
+	}
+
+	/**
+	 * Verify that a Slack identity still belongs to the workspace.
+	 *
+	 * Wiki sessions outlive the OAuth exchange that created them, so relying on
+	 * a signed cookie alone would leave a removed member authorised until that
+	 * cookie expires. Re-check Slack on use, with a short cache to avoid turning
+	 * every page asset into an API call. API failures fail closed.
+	 */
+	async isActiveUser(userId: string): Promise<boolean> {
+		const now = Date.now();
+		const cached = this.activeUsers.get(userId);
+		if (cached && cached.expiresAt > now) return cached.active;
+
+		let active = false;
+		try {
+			const result = await withRetry(() => this.web.users.info({ user: userId }), "isActiveUser");
+			active = result.user !== undefined && result.user.deleted !== true;
+		} catch {
+			// withRetry already logs the underlying Slack API failure.
+		}
+
+		this.activeUsers.set(userId, { active, expiresAt: now + ACTIVE_USER_CACHE_TTL_MS });
+		return active;
 	}
 
 	/**

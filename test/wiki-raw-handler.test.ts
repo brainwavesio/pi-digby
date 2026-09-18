@@ -11,6 +11,7 @@ const TEAM = "T123456";
 // biome-ignore lint/suspicious/noExplicitAny: minimal node http stubs
 let handler: any;
 let root: string;
+let userActive = true;
 
 beforeAll(async () => {
 	root = mkdtempSync(join(tmpdir(), "digby-raw-handler-"));
@@ -23,6 +24,7 @@ beforeAll(async () => {
 	handler = await createRawHandler({
 		workingDir: root,
 		cookieSecret: SECRET,
+		isUserActive: async () => userActive,
 		slack: {
 			clientId: "CLIENT_ID",
 			clientSecret: "CLIENT_SECRET",
@@ -34,6 +36,7 @@ beforeAll(async () => {
 
 afterEach(() => {
 	vi.restoreAllMocks();
+	userActive = true;
 });
 
 function validCookie(): string {
@@ -94,6 +97,24 @@ describe("unauthenticated requests", () => {
 
 	it("clears a bad cookie on redirect", async () => {
 		const req = makeReq("/r/docs/readme.md", "invalid-cookie-value");
+		const res = makeRes();
+		await handler(req, res);
+		expect(res.statusCode).toBe(302);
+		expect(res.headers["Set-Cookie"]).toMatch(/Max-Age=0/);
+	});
+
+	it("clears a signed cookie when Slack says the user is inactive", async () => {
+		userActive = false;
+		const req = makeReq("/r/docs/readme.md", validCookie());
+		const res = makeRes();
+		await handler(req, res);
+		expect(res.statusCode).toBe(302);
+		expect(res.headers["Set-Cookie"]).toMatch(/Max-Age=0/);
+	});
+
+	it("clears a signed cookie for a different Slack workspace", async () => {
+		const cookie = signCookie({ sub: "U001", team: "T_OTHER", exp: Date.now() + 60_000 }, SECRET);
+		const req = makeReq("/r/docs/readme.md", cookie);
 		const res = makeRes();
 		await handler(req, res);
 		expect(res.statusCode).toBe(302);

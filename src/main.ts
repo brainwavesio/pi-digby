@@ -395,6 +395,7 @@ if (
 	const wikiHandler = await createWikiHandler({
 		workingDir,
 		cookieSecret: DIGBY_COOKIE_SECRET,
+		isUserActive: (userId) => client.isActiveUser(userId),
 		slack: {
 			clientId: DIGBY_SLACK_CLIENT_ID,
 			clientSecret: DIGBY_SLACK_CLIENT_SECRET,
@@ -417,6 +418,7 @@ if (
 	const rawHandler = await createRawHandler({
 		workingDir,
 		cookieSecret: DIGBY_COOKIE_SECRET,
+		isUserActive: (userId) => client.isActiveUser(userId),
 		slack: {
 			clientId: DIGBY_SLACK_CLIENT_ID,
 			clientSecret: DIGBY_SLACK_CLIENT_SECRET,

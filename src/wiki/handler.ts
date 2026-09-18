@@ -91,6 +91,7 @@ const PUBLIC_DIR = fileURLToPath(new URL("./public/", import.meta.url));
 export type WikiHandlerOptions = {
 	workingDir: string;
 	cookieSecret: string;
+	isUserActive: (userId: string) => Promise<boolean>;
 	slack: {
 		clientId: string;
 		clientSecret: string;
@@ -250,6 +251,10 @@ async function handleAuthCallback(
 		log.warn(`[wiki] auth-callback wrong team: ${identity.teamId} != ${opts.slack.teamId}`);
 		return loginPage(opts, verified.returnTo, res, 403);
 	}
+	if (!(await opts.isUserActive(identity.userId))) {
+		log.warn(`[wiki] auth-callback inactive user: ${identity.userId}`);
+		return loginPage(opts, verified.returnTo, res, 403);
+	}
 	log.info(`[wiki] auth-callback ok user=${identity.userId} → ${verified.returnTo}`);
 	res.writeHead(302, {
 		Location: verified.returnTo,
@@ -299,10 +304,12 @@ async function handleWiki(
 	req: IncomingMessage,
 	res: ServerResponse,
 ): Promise<void> {
-	// Auth gate. Existing valid cookies are *never* demoted.
+	// Auth gate. A valid cookie proves who signed in, but Slack remains the
+	// source of truth for whether that person still belongs to the workspace.
 	const cookieVal = readCookie(req.headers.cookie);
 	const auth = cookieVal ? verifyCookie(cookieVal, opts.cookieSecret) : null;
-	const ok = auth?.ok === true;
+	const ok =
+		auth?.ok === true && auth.payload.team === opts.slack.teamId && (await opts.isUserActive(auth.payload.sub));
 
 	const requestedPath = url.pathname.startsWith("/w/") ? url.pathname.slice("/w/".length) : "";
 	const decodedPath = safeDecode(requestedPath);
