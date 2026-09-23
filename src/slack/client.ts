@@ -4,6 +4,7 @@ import { readFileSync } from "fs";
 import { basename } from "path";
 import QuickLRU from "quick-lru";
 import * as log from "../log.js";
+import type { MessagePayload } from "../surface/types.js";
 import type { SlackChannel, SlackUser } from "./types.js";
 
 const ACTIVE_USER_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -108,13 +109,21 @@ export class SlackClient {
 		});
 	}
 
+	onAssistantThreadStarted(handler: (event: Record<string, any>) => void): void {
+		this.socket.on("assistant_thread_started", ({ event, ack }) => {
+			ack();
+			handler(event);
+		});
+	}
+
 	// ==========================================================================
 	// Slack API (all with retry)
 	// ==========================================================================
 
-	async postMessage(channel: string, text: string, threadTs?: string): Promise<string> {
+	async postMessage(channel: string, payload: MessagePayload, threadTs?: string): Promise<string> {
+		const base = typeof payload === "string" ? { text: payload } : { text: payload.text, blocks: payload.blocks };
 		const result = (await withRetry(
-			() => this.web.chat.postMessage({ channel, text, ...(threadTs && { thread_ts: threadTs }) }),
+			() => this.web.chat.postMessage({ channel, ...base, ...(threadTs && { thread_ts: threadTs }) }),
 			"postMessage",
 		)) as { ts?: string };
 		const ts = result.ts as string;
@@ -125,8 +134,52 @@ export class SlackClient {
 		return ts;
 	}
 
-	async updateMessage(channel: string, ts: string, text: string): Promise<void> {
-		await withRetry(() => this.web.chat.update({ channel, ts, text }), "updateMessage");
+	async updateMessage(channel: string, ts: string, payload: MessagePayload): Promise<void> {
+		const base = typeof payload === "string" ? { text: payload } : { text: payload.text, blocks: payload.blocks };
+		await withRetry(() => this.web.chat.update({ channel, ts, ...base }), "updateMessage");
+	}
+
+	async setThreadStatus(channel: string, threadTs: string, status: string, loadingMessages?: string[]): Promise<void> {
+		await withRetry(
+			() =>
+				(this.web as any).apiCall("assistant.threads.setStatus", {
+					channel_id: channel,
+					thread_ts: threadTs,
+					status,
+					...(loadingMessages && { loading_messages: loadingMessages }),
+				}),
+			"setThreadStatus",
+		);
+	}
+
+	async setSuggestedPrompts(
+		channel: string,
+		threadTs: string,
+		title: string,
+		prompts: Array<{ title: string; message: string }>,
+	): Promise<void> {
+		await withRetry(
+			() =>
+				(this.web as any).apiCall("assistant.threads.setSuggestedPrompts", {
+					channel_id: channel,
+					thread_ts: threadTs,
+					title,
+					prompts,
+				}),
+			"setSuggestedPrompts",
+		);
+	}
+
+	async setTitle(channel: string, threadTs: string, title: string): Promise<void> {
+		await withRetry(
+			() =>
+				(this.web as any).apiCall("assistant.threads.setTitle", {
+					channel_id: channel,
+					thread_ts: threadTs,
+					title,
+				}),
+			"setTitle",
+		);
 	}
 
 	async deleteMessage(channel: string, ts: string): Promise<void> {
