@@ -20,9 +20,8 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { existsSync, readFileSync, statSync } from "fs";
 import { mkdir, writeFile } from "fs/promises";
-import { createRequire } from "module";
 import { homedir } from "os";
-import { dirname, join } from "path";
+import { join } from "path";
 import type { RunStats } from "../channel/run-stats.js";
 import type { ChannelState } from "../channel/state.js";
 import { getModelConfig, getRunTimeout, getRunTimeoutWarnBeforeS, getThinkingLevel } from "../config.js";
@@ -42,6 +41,7 @@ import type { BotEvent } from "../types.js";
 import { resizeImage } from "../utils/image-resize.js";
 import { detectSupportedImageMimeTypeFromFile } from "../utils/mime.js";
 import { createEventHandler } from "./events.js";
+import { loadMcpAdapter } from "./mcp-adapter.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { loadSkills } from "./skills.js";
 
@@ -263,19 +263,13 @@ export async function createChannelRunner(opts: {
 	}
 
 	// -----------------------------------------------------------------------
-	// MCP adapter via jiti (loads .ts source without compiling)
+	// MCP adapter
 	// -----------------------------------------------------------------------
 	let resourceLoader: ResourceLoader;
 	let isDefaultResourceLoader = false;
 
 	try {
-		const require = createRequire(import.meta.url);
-		const adapterDir = dirname(require.resolve("pi-mcp-adapter/package.json"));
-		const { createJiti } = await import("jiti");
-		const jiti = createJiti(import.meta.url);
-		const mcpAdapter = (await jiti.import(join(adapterDir, "index.ts"), {
-			default: true,
-		})) as (...args: unknown[]) => void;
+		const mcpAdapter = await loadMcpAdapter();
 
 		const defaultLoader = new DefaultResourceLoader({
 			cwd: workingDir,
