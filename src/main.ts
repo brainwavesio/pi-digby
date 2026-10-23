@@ -309,6 +309,7 @@ async function enqueueSlackEvent(event: SlackEvent, client: SlackClient, isEvent
 const client = new SlackClient({
 	appToken: DIGBY_SLACK_APP_TOKEN,
 	botToken: DIGBY_SLACK_BOT_TOKEN,
+	onConnectionLost: () => shutdown("Slack connection lost", 1),
 });
 
 const handler: RouterHandler = {
@@ -609,12 +610,12 @@ log.info("Ready");
 // Shutdown
 // ============================================================================
 
-function shutdown(signal: string): void {
-	log.info(`Shutting down (${signal})...`);
+function shutdown(reason: string, exitCode = 0): void {
+	log.info(`Shutting down (${reason})...`);
 	eventsWatcher.stop();
 	shutdownAllRunners()
 		.catch((err) => log.warn("Shutdown error", String(err)))
-		.finally(() => process.exit(0));
+		.finally(() => process.exit(exitCode));
 }
 
 process.on("SIGINT", () => shutdown("SIGINT"));

@@ -45,6 +45,34 @@ async function withRetry<T>(op: () => Promise<T>, context: string, maxRetries = 
 }
 
 // ============================================================================
+// Connection watchdog
+// ============================================================================
+
+const RECONNECT_DEADLINE_MS = 5 * 60 * 1000;
+
+/**
+ * Calls `onLost` when the socket stays closed past the deadline.
+ *
+ * When Slack refuses a reconnect as unrecoverable (e.g. `invalid_auth`), the Socket Mode
+ * client drops the rejection unhandled and never tries again, so the bot goes silent.
+ * The caller exits instead, and ECS starts a new task.
+ */
+export function watchConnection(
+	socket: SocketModeClient,
+	onLost: () => void,
+	deadlineMs = RECONNECT_DEADLINE_MS,
+): void {
+	let timer: NodeJS.Timeout | undefined;
+	socket.on("close", () => {
+		timer ??= setTimeout(onLost, deadlineMs);
+	});
+	socket.on("connected", () => {
+		clearTimeout(timer);
+		timer = undefined;
+	});
+}
+
+// ============================================================================
 // SlackClient
 // ============================================================================
 
@@ -64,8 +92,9 @@ export class SlackClient {
 
 	private botToken: string;
 
-	constructor(config: { appToken: string; botToken: string }) {
+	constructor(config: { appToken: string; botToken: string; onConnectionLost: () => void }) {
 		this.socket = new SocketModeClient({ appToken: config.appToken });
+		watchConnection(this.socket, config.onConnectionLost);
 		this.web = new WebClient(config.botToken);
 		this.botToken = config.botToken;
 	}
