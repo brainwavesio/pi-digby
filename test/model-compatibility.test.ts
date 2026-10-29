@@ -28,3 +28,7 @@ describe("configured Bedrock models", () => {
    .toMatchObject({ additionalModelRequestFields: { thinking: { type: "adaptive" }, output_config: { effort: "max" } } });
  });
 });
+
+it("preserves adaptive thinking replay protection", () => {
+ expect(prepareBedrockPayload({ additionalModelRequestFields: { thinking: { type: "adaptive", block_binding: { prefix_mismatch_behavior: "drop_block" } } } }, "high")).toMatchObject({ additionalModelRequestFields: { thinking: { type: "adaptive", block_binding: { prefix_mismatch_behavior: "drop_block" } } } });
+});

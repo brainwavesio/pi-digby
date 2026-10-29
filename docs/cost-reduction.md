@@ -20,7 +20,7 @@ Each completed Slack or Linear run writes a separate JSON file. Scheduled runs i
 
 Records contain no prompts, responses, tool arguments, credentials or error text. `.usage` is hidden by the existing wiki access rules. New daily directories use mode 0700 and files use mode 0600. Files are retained; no automatic deletion is introduced.
 
-These records are not invoices. They exclude compaction calls and external tool charges. Missing usage increments `missingCalls`; no observed usage yields a null total. An error after partial inference may have incomplete usage. A process crash before finalization leaves no record. A write failure produces `Run usage write failed` in application logs and does not prevent channel cleanup. AWS billing remains the source for total spend.
+These records are not invoices. They include reported compaction usage in a separate `purpose: compaction` bucket. The SDK does not identify the compaction model in its completion event, so that bucket uses `not-reported` for model and provider. They exclude external tool charges. Missing usage increments `missingCalls`; no observed usage yields a null total. An error after partial inference may have incomplete usage. A process crash before finalization leaves no record. A write failure produces `Run usage write failed` in application logs and does not prevent channel cleanup. AWS billing remains the source for total spend.
 
 For cost analysis, group records by `jobId`, then provider/model, and sum each token field and estimated cost. Separate records with missing usage or failed outcomes. Preserve unknown usage as unknown.
 

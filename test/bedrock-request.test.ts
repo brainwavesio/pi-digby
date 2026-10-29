@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { normalizeContext } from "@earendil-works/pi-ai/utils/transcript";
+import { createRunStats } from "../src/channel/run-stats.js";
+import { recordAssistantUsage } from "../src/persistence/run-usage.js";
 import { Type } from "typebox";
 import { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";
 import { bedrockProviderModule } from "@earendil-works/pi-ai/bedrock-provider";
@@ -20,6 +22,9 @@ describe("Bedrock SDK request boundary", () => {
    ] }), { env: {}, onPayload: payload => prepareBedrockPayload(payload, "off") });
    const result = await stream.result();
    expect(result.stopReason).toBe("error");
+const stats = createRunStats();
+recordAssistantUsage(stats, result);
+expect(stats.usage).toEqual({ models: [], missingCalls: 1 });
    expect(result.errorMessage).toContain("offline test");
    expect(send).toHaveBeenCalledOnce();
    const request = send.mock.calls[0][0].input;

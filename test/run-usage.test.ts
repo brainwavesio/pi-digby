@@ -30,3 +30,24 @@ describe("durable run usage", () => {
   expect(stats.usage?.models).toEqual([]);
  });
 });
+
+it("does not count SDK placeholder zeros after a failed stream as measured usage", () => {
+ const stats = createRunStats();
+ recordAssistantUsage(stats, { provider: "amazon-bedrock", model: "test", stopReason: "error", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } } });
+ expect(stats.usage).toEqual({ models: [], missingCalls: 1 });
+});
+
+it("captures compaction usage through the session event interface without recording its summary", async () => {
+ const { createEventHandler } = await import("../src/agent/events.js");
+ const stats = createRunStats();
+ const surface = { emitThinking() {}, emitProgress() {}, emitResponse() {}, emitDetail() {}, emitReaction() {}, emitFile() {}, resolve() {}, reject() {}, suppress() {}, async flush() {}, dispose() {}, finalText: "", finalMessageTs: null, wasDeleted: false };
+ const handler = createEventHandler(surface, "C1", stats);
+ handler({ type: "compaction_end", reason: "threshold", aborted: false, willRetry: false, result: {
+  summary: "private summary", firstKeptEntryId: "id", tokensBefore: 1000,
+  usage: { input: 100, output: 10, cacheRead: 0, cacheWrite: 0, totalTokens: 110, cost: { input: .001, output: .002, cacheRead: 0, cacheWrite: 0, total: .003 } }
+ } });
+ expect(stats.usage?.models[0]).toMatchObject({ purpose: "compaction", model: "not-reported", input: 100, output: 10, estimatedCostUsd: .003 });
+ expect(JSON.stringify(stats.usage)).not.toContain("private summary");
+ handler({ type: "compaction_end", reason: "threshold", aborted: true, willRetry: false, result: undefined });
+ expect(stats.usage?.missingCalls).toBe(1);
+});

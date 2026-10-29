@@ -28,7 +28,13 @@ export function prepareBedrockPayload(payload: unknown, level: DigbyConfig["thin
 	delete fields.temperature;
 	delete fields.top_p;
 	const effort = !level || level === "off" || level === "minimal" ? "low" : level;
-	fields.thinking = { type: !level || level === "off" ? "between_tools" : "adaptive" };
+	if (!level || level === "off") {
+		fields.thinking = { type: "between_tools" };
+	} else {
+		const thinking = { ...record(fields.thinking ?? {}), type: "adaptive" } as Record<string, unknown>;
+		delete thinking.budget_tokens;
+		fields.thinking = thinking;
+	}
 	fields.output_config = { ...record(fields.output_config ?? {}), effort };
 	return { ...request, inferenceConfig, additionalModelRequestFields: fields };
 }

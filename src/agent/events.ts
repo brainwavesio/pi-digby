@@ -205,6 +205,17 @@ export function createEventHandler(
 			log.info(`[${channelId}] Compaction started (reason: ${event.reason})`);
 			ctx.emitProgress("*Compacting context...*");
 		} else if (event.type === "compaction_end") {
+			recordAssistantUsage(
+				stats,
+				{
+					provider: "not-reported",
+					model: "not-reported",
+					usage: event.result?.usage,
+					stopReason: event.aborted || event.errorMessage ? "error" : "stop",
+				},
+				"compaction",
+			);
+			stats.totalCost += event.result?.usage?.cost.total ?? 0;
 			if (event.result) {
 				log.info(`[${channelId}] Compaction complete: ${event.result.tokensBefore} tokens compacted`);
 			} else if (event.aborted) {

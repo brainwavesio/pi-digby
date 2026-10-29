@@ -4,6 +4,7 @@ import { join } from "path";
 import type { RunStats } from "../channel/run-stats.js";
 
 export interface ModelUsage {
+	purpose: "assistant" | "compaction";
 	provider: string;
 	model: string;
 	calls: number;
@@ -25,17 +26,24 @@ export interface RunIdentity {
 	startedAt: number;
 }
 interface AssistantUsage {
+	stopReason?: string;
 	provider: string;
 	model: string;
 	usage?: { input: number; output: number; cacheRead: number; cacheWrite: number; cost: { total: number } };
 }
 
-export function recordAssistantUsage(stats: RunStats, message: AssistantUsage): void {
+export function recordAssistantUsage(
+	stats: RunStats,
+	message: AssistantUsage,
+	purpose: "assistant" | "compaction" = "assistant",
+): void {
 	stats.usage ??= { models: [], missingCalls: 0 };
 	const usage = stats.usage;
 	const tokens = message.usage;
 	if (
 		!tokens ||
+		((message.stopReason === "error" || message.stopReason === "aborted") &&
+			tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite === 0) ||
 		![tokens.input, tokens.output, tokens.cacheRead, tokens.cacheWrite, tokens.cost?.total].every(
 			(value) => typeof value === "number" && Number.isFinite(value) && value >= 0,
 		)
@@ -43,9 +51,12 @@ export function recordAssistantUsage(stats: RunStats, message: AssistantUsage): 
 		usage.missingCalls++;
 		return;
 	}
-	let model = usage.models.find((row) => row.provider === message.provider && row.model === message.model);
+	let model = usage.models.find(
+		(row) => row.provider === message.provider && row.model === message.model && row.purpose === purpose,
+	);
 	if (!model) {
 		model = {
+			purpose,
 			provider: message.provider,
 			model: message.model,
 			calls: 0,
@@ -87,7 +98,7 @@ export async function writeRunUsage(dir: string, run: RunIdentity, stats: RunSta
 		missingCalls,
 		usageAvailable: models.length > 0,
 		estimatedCostUsd: models.length > 0 ? models.reduce((sum, row) => sum + row.estimatedCostUsd, 0) : null,
-		costBasis: "SDK assistant-message estimates; excludes compaction and external tools; not a billing total",
+		costBasis: "SDK inference estimates; excludes external tools; not a billing total",
 	};
 	await writeFile(path, `${JSON.stringify(record)}\n`, { mode: 0o600, flag: "wx" });
 	return path;
