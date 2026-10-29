@@ -201,6 +201,8 @@ export function createEventHandler(
 					}
 				}
 			}
+		} else if (event.type === "summarization_retry_scheduled") {
+			recordAssistantUsage(stats, { provider: "not-reported", model: "not-reported" }, "compaction");
 		} else if (event.type === "compaction_start") {
 			log.info(`[${channelId}] Compaction started (reason: ${event.reason})`);
 			ctx.emitProgress("*Compacting context...*");

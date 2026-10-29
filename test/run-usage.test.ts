@@ -42,6 +42,7 @@ it("captures compaction usage through the session event interface without record
  const stats = createRunStats();
  const surface = { emitThinking() {}, emitProgress() {}, emitResponse() {}, emitDetail() {}, emitReaction() {}, emitFile() {}, resolve() {}, reject() {}, suppress() {}, async flush() {}, dispose() {}, finalText: "", finalMessageTs: null, wasDeleted: false };
  const handler = createEventHandler(surface, "C1", stats);
+ handler({ type: "summarization_retry_scheduled", attempt: 1, maxAttempts: 3, delayMs: 100, errorMessage: "private failure" });
  handler({ type: "compaction_end", reason: "threshold", aborted: false, willRetry: false, result: {
   summary: "private summary", firstKeptEntryId: "id", tokensBefore: 1000,
   usage: { input: 100, output: 10, cacheRead: 0, cacheWrite: 0, totalTokens: 110, cost: { input: .001, output: .002, cacheRead: 0, cacheWrite: 0, total: .003 } }
@@ -49,5 +50,5 @@ it("captures compaction usage through the session event interface without record
  expect(stats.usage?.models[0]).toMatchObject({ purpose: "compaction", model: "not-reported", input: 100, output: 10, estimatedCostUsd: .003 });
  expect(JSON.stringify(stats.usage)).not.toContain("private summary");
  handler({ type: "compaction_end", reason: "threshold", aborted: true, willRetry: false, result: undefined });
- expect(stats.usage?.missingCalls).toBe(1);
+ expect(stats.usage?.missingCalls).toBe(2);
 });
