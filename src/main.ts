@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { randomUUID } from "crypto";
 import { mkdirSync, writeFileSync } from "fs";
 import { dirname, join, resolve } from "path";
 import { type ChannelRunner, evictRunner, getOrCreateRunner, shutdownAllRunners } from "./agent/setup.js";
@@ -11,6 +12,7 @@ import { initConfig } from "./config.js";
 import { createEventsWatcher } from "./events/watcher.js";
 import { HttpServer } from "./http-server.js";
 import * as log from "./log.js";
+import { writeRunUsage } from "./persistence/run-usage.js";
 import { SlackClient } from "./slack/client.js";
 import { getSlackConversationTarget, getSlackStopConversationTarget } from "./slack/conversation.js";
 import { type RouterHandler, setupRouter } from "./slack/router.js";
@@ -198,6 +200,13 @@ async function runSlackEvent(
 
 	// Stats shared between surface (footer) and event handler (updates)
 	const stats = createRunStats();
+	const runIdentity = {
+		runId: randomUUID(),
+		startedAt: Date.now(),
+		source: event.source,
+		channelId: event.channel,
+		jobId: event.scheduledJobId,
+	};
 
 	// Create surface — guaranteed to resolve via finally
 	const ctx = new SlackSurface(client, event.channel, stats, conversation.replyThreadTs);
@@ -249,9 +258,13 @@ async function runSlackEvent(
 		}
 	} catch (err) {
 		const errMsg = err instanceof Error ? err.message : String(err);
+		stats.stopReason = "error";
 		log.warn(`[${event.channel}] Run error`, errMsg);
 		ctx.reject(`Something went wrong: ${errMsg.substring(0, 500)}`);
 	} finally {
+		await writeRunUsage(workingDir, runIdentity, stats, ctx.wasDeleted).catch(() =>
+			log.warn("Run usage write failed"),
+		);
 		ctx.resolve(); // No-op if already rejected/deleted. Sets streaming=false, adds cost footer.
 		await ctx.flush();
 
@@ -462,6 +475,7 @@ const eventsWatcher = createEventsWatcher(workingDir, ({ channelId, text, filena
 		ts: (Date.now() / 1000).toFixed(6),
 		user: "system",
 		text: `[EVENT:${filename}:${text}]`,
+		scheduledJobId: filename,
 		threadTs,
 	};
 	const state = getChannelRunState(channelId);
@@ -502,6 +516,13 @@ if (LINEAR_API_KEY && LINEAR_WEBHOOK_SECRET) {
 		lane.activeRunner = undefined;
 
 		const stats = createRunStats();
+		const runIdentity = {
+			runId: randomUUID(),
+			startedAt: Date.now(),
+			source: event.source,
+			channelId: event.channel,
+			jobId: event.scheduledJobId,
+		};
 		const sessionId = event.channel.replace("linear:", "");
 		const ctx = new LinearSurface(linearClient, sessionId, stats);
 
@@ -538,9 +559,13 @@ if (LINEAR_API_KEY && LINEAR_WEBHOOK_SECRET) {
 			}
 		} catch (err) {
 			const errMsg = err instanceof Error ? err.message : String(err);
+			stats.stopReason = "error";
 			log.warn(`[${event.channel}] Linear run error`, errMsg);
 			ctx.reject(`Something went wrong: ${errMsg.substring(0, 500)}`);
 		} finally {
+			await writeRunUsage(workingDir, runIdentity, stats, ctx.wasDeleted).catch(() =>
+				log.warn("Run usage write failed"),
+			);
 			ctx.resolve();
 			await ctx.flush();
 

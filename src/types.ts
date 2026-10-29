@@ -8,6 +8,7 @@ export interface BotEvent {
 	files?: Array<{ name?: string; url_private_download?: string; url_private?: string }>;
 	attachments?: Attachment[];
 	threadTs?: string;
+	scheduledJobId?: string;
 }
 
 export interface Attachment {

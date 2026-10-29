@@ -8,6 +8,7 @@ import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import type { RunStats } from "../channel/run-stats.js";
 import { isDebugThreadingEnabled } from "../config.js";
 import * as log from "../log.js";
+import { recordAssistantUsage } from "../persistence/run-usage.js";
 import type { AgentSurface } from "../surface/types.js";
 
 /**
@@ -162,6 +163,8 @@ export function createEventHandler(
 				if (assistantMsg.errorMessage) {
 					stats.errorMessage = assistantMsg.errorMessage;
 				}
+
+				recordAssistantUsage(stats, assistantMsg);
 
 				// Accumulate usage/cost
 				if (assistantMsg.usage?.cost) {
