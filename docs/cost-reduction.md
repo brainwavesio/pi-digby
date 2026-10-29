@@ -16,7 +16,7 @@ See the [Sonnet 5.5 migration guide](https://platform.claude.com/docs/en/models/
 
 ## Read the usage records
 
-Each completed Slack or Linear run writes a separate JSON file. Scheduled runs include the event filename as `jobId`. Records include run identity, times, outcome, silent flag and assistant-call tokens grouped by provider and model. The token fields separate input, output, cache reads and cache writes. `estimatedCostUsd` uses SDK rates, before credits or tax.
+Each completed Slack or Linear run writes a separate JSON file. Scheduled runs include the event filename as `jobId`. Queued runs retain it only when every queued event has that same job ID. Mixed jobs or jobs batched with user messages have no `jobId`; treat their cost as unattributed rather than assigning it to one job. Records include run identity, times, outcome, silent flag and assistant-call tokens grouped by provider and model. The token fields separate input, output, cache reads and cache writes. `estimatedCostUsd` uses SDK rates, before credits or tax.
 
 Records contain no prompts, responses, tool arguments, credentials or error text. `.usage` is hidden by the existing wiki access rules. New daily directories use mode 0700 and files use mode 0600. Files are retained; no automatic deletion is introduced.
 
@@ -26,6 +26,6 @@ For cost analysis, group records by `jobId`, then provider/model, and sum each t
 
 ## Remaining job changes
 
-Deterministic memory Git sync and smaller Granola/digest contexts require the complete deployed job instructions. They are not included in this change because that source required sign-in consent during implementation. Do not replace backup or monitoring work based on abbreviated logs.
+Deterministic memory Git sync and smaller Granola/digest contexts are separate changes. Before changing a job, the operator must read its complete current definition under `/data/events/`, including its destinations, backup scope, escalation rules and approval controls. Log excerpts alone do not establish these requirements.
 
-Once those instructions are available, preserve the current schedule and backup scope. Run ordinary Git operations without an LLM, escalate conflicts or failures to the agent, and retain the previous job definition for rollback. For Granola and digest, check for new source data first and use only the context each task needs. Keep durable checkpoints and the existing approval boundaries for external actions.
+Preserve the current schedule and backup scope. Run ordinary Git operations without an LLM, escalate conflicts or failures to the agent, and retain the previous job definition for rollback. For Granola and digest, check for new source data first and use only the context each task needs. Keep durable checkpoints and the existing approval boundaries for external actions.

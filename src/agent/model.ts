@@ -1,3 +1,4 @@
+import type { Api, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { type BuiltinProvider, getBuiltinModel } from "@earendil-works/pi-ai/providers/all";
 import type { DigbyConfig } from "../config.js";
 
@@ -37,4 +38,20 @@ export function prepareBedrockPayload(payload: unknown, level: DigbyConfig["thin
 	}
 	fields.output_config = { ...record(fields.output_config ?? {}), effort };
 	return { ...request, inferenceConfig, additionalModelRequestFields: fields };
+}
+
+/** Keep provider adaptation and caller payload hooks in one tested path. */
+export function configuredStreamOptions(
+	model: Model<Api>,
+	options: SimpleStreamOptions | undefined,
+	level: DigbyConfig["thinkingLevel"],
+): SimpleStreamOptions | undefined {
+	if (model.provider !== "amazon-bedrock" || !/(?:^|\.)anthropic\.claude-sonnet-5-5$/.test(model.id)) return options;
+	return {
+		...options,
+		onPayload: async (payload, currentModel) => {
+			const upstream = await options?.onPayload?.(payload, currentModel);
+			return prepareBedrockPayload(upstream ?? payload, level);
+		},
+	};
 }

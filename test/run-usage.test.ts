@@ -48,7 +48,14 @@ it("captures compaction usage through the session event interface without record
   usage: { input: 100, output: 10, cacheRead: 0, cacheWrite: 0, totalTokens: 110, cost: { input: .001, output: .002, cacheRead: 0, cacheWrite: 0, total: .003 } }
  } });
  expect(stats.usage?.models[0]).toMatchObject({ purpose: "compaction", model: "not-reported", input: 100, output: 10, estimatedCostUsd: .003 });
- expect(JSON.stringify(stats.usage)).not.toContain("private summary");
+ expect(JSON.stringify(stats.usage)).not.toMatch(/private summary|private failure/);
+ for (const total of [NaN, Infinity, -1]) {
+  handler({ type: "compaction_end", reason: "threshold", aborted: false, willRetry: false, result: {
+   summary: "private summary", firstKeptEntryId: "id", tokensBefore: 1000,
+   usage: { input: 100, output: 10, cacheRead: 0, cacheWrite: 0, totalTokens: 110, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total } }
+  } });
+ }
+ expect(stats.totalCost).toBe(.003);
  handler({ type: "compaction_end", reason: "threshold", aborted: true, willRetry: false, result: undefined });
- expect(stats.usage?.missingCalls).toBe(2);
+ expect(stats.usage?.missingCalls).toBe(5);
 });

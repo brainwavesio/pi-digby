@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { prepareBedrockPayload, resolveConfiguredModel } from "../src/agent/model.js";
+import { configuredStreamOptions, prepareBedrockPayload, resolveConfiguredModel } from "../src/agent/model.js";
 
 describe("configured Bedrock models", () => {
  it("resolves Sonnet 5.5 and the Opus rollback with valid compaction metadata", () => {
@@ -31,4 +31,18 @@ describe("configured Bedrock models", () => {
 
 it("preserves adaptive thinking replay protection", () => {
  expect(prepareBedrockPayload({ additionalModelRequestFields: { thinking: { type: "adaptive", block_binding: { prefix_mismatch_behavior: "drop_block" } } } }, "high")).toMatchObject({ additionalModelRequestFields: { thinking: { type: "adaptive", block_binding: { prefix_mismatch_behavior: "drop_block" } } } });
+});
+
+it("adapts Sonnet stream options after the caller hook and skips the Opus rollback", async () => {
+ const sonnet = resolveConfiguredModel("amazon-bedrock", "us.anthropic.claude-sonnet-5-5");
+ const opus = resolveConfiguredModel("amazon-bedrock", "us.anthropic.claude-opus-5");
+ let called = false;
+ const options = { onPayload: () => { called = true; return { inferenceConfig: { maxTokens: 123, temperature: 1 } }; } };
+ const result = await configuredStreamOptions(sonnet, options, "off")?.onPayload?.({}, sonnet);
+ expect(called).toBe(true);
+ expect(result).toMatchObject({ inferenceConfig: { maxTokens: 123 }, additionalModelRequestFields: { thinking: { type: "between_tools" } } });
+ expect(result).not.toHaveProperty("inferenceConfig.temperature");
+ expect(configuredStreamOptions(opus, options, "off")).toBe(options);
+ expect(configuredStreamOptions({ ...sonnet, provider: "anthropic" }, options, "off")).toBe(options);
+ expect(await configuredStreamOptions(sonnet, { onPayload: () => undefined }, "off")?.onPayload?.({ inferenceConfig: { maxTokens: 321 } }, sonnet)).toMatchObject({ inferenceConfig: { maxTokens: 321 } });
 });

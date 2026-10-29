@@ -41,7 +41,7 @@ import { resizeImage } from "../utils/image-resize.js";
 import { detectSupportedImageMimeTypeFromFile } from "../utils/mime.js";
 import { createEventHandler } from "./events.js";
 import { loadMcpAdapter } from "./mcp-adapter.js";
-import { prepareBedrockPayload, resolveConfiguredModel } from "./model.js";
+import { configuredStreamOptions, resolveConfiguredModel } from "./model.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { loadSkills } from "./skills.js";
 
@@ -234,17 +234,7 @@ export async function createChannelRunner(opts: {
 		},
 		convertToLlm,
 		streamFn: (m, ctx, opts) =>
-			modelRuntime.streamSimple(m, ctx, {
-				...opts,
-				...(m.provider === "amazon-bedrock" && /(?:^|\.)anthropic\.claude-sonnet-5-5$/.test(m.id)
-					? {
-							onPayload: async (payload, model) => {
-								const upstream = await opts?.onPayload?.(payload, model);
-								return prepareBedrockPayload(upstream ?? payload, agent.state.thinkingLevel);
-							},
-						}
-					: {}),
-			}),
+			modelRuntime.streamSimple(m, ctx, configuredStreamOptions(m, opts, agent.state.thinkingLevel)),
 		afterToolCall: capToolResultBytes,
 	});
 

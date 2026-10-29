@@ -217,7 +217,10 @@ export function createEventHandler(
 				},
 				"compaction",
 			);
-			stats.totalCost += event.result?.usage?.cost.total ?? 0;
+			const compactionCost = event.result?.usage?.cost?.total;
+			if (typeof compactionCost === "number" && Number.isFinite(compactionCost) && compactionCost >= 0) {
+				stats.totalCost += compactionCost;
+			}
 			if (event.result) {
 				log.info(`[${channelId}] Compaction complete: ${event.result.tokensBefore} tokens compacted`);
 			} else if (event.aborted) {
