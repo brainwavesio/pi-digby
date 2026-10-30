@@ -32,6 +32,9 @@ export function createQueuedFollowUpTrigger(events: BotEvent[], nowMs = Date.now
 	return {
 		type: last.type,
 		source: last.source,
+		...(last.scheduledJobId && events.every((event) => event.scheduledJobId === last.scheduledJobId)
+			? { scheduledJobId: last.scheduledJobId }
+			: {}),
 		channel: last.channel,
 		ts: nextTimestampAfter(events, nowMs),
 		user: "system",

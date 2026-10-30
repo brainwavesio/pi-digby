@@ -1,9 +1,11 @@
+import type { RunUsage } from "../persistence/run-usage.js";
 /**
  * Mutable stats object shared between the surface (for footer rendering)
  * and the event handler (which updates counts during the run).
  */
 export interface RunStats {
 	stepCount: number;
+	usage?: RunUsage;
 	totalCost: number;
 	stopReason: string;
 	errorMessage?: string;

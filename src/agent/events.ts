@@ -8,6 +8,7 @@ import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import type { RunStats } from "../channel/run-stats.js";
 import { isDebugThreadingEnabled } from "../config.js";
 import * as log from "../log.js";
+import { recordAssistantUsage } from "../persistence/run-usage.js";
 import type { AgentSurface } from "../surface/types.js";
 
 /**
@@ -163,6 +164,8 @@ export function createEventHandler(
 					stats.errorMessage = assistantMsg.errorMessage;
 				}
 
+				recordAssistantUsage(stats, assistantMsg);
+
 				// Accumulate usage/cost
 				if (assistantMsg.usage?.cost) {
 					stats.totalCost += assistantMsg.usage.cost.total || 0;
@@ -198,10 +201,26 @@ export function createEventHandler(
 					}
 				}
 			}
+		} else if (event.type === "summarization_retry_scheduled") {
+			recordAssistantUsage(stats, { provider: "not-reported", model: "not-reported" }, "compaction");
 		} else if (event.type === "compaction_start") {
 			log.info(`[${channelId}] Compaction started (reason: ${event.reason})`);
 			ctx.emitProgress("*Compacting context...*");
 		} else if (event.type === "compaction_end") {
+			recordAssistantUsage(
+				stats,
+				{
+					provider: "not-reported",
+					model: "not-reported",
+					usage: event.result?.usage,
+					stopReason: event.aborted || event.errorMessage ? "error" : "stop",
+				},
+				"compaction",
+			);
+			const compactionCost = event.result?.usage?.cost?.total;
+			if (typeof compactionCost === "number" && Number.isFinite(compactionCost) && compactionCost >= 0) {
+				stats.totalCost += compactionCost;
+			}
 			if (event.result) {
 				log.info(`[${channelId}] Compaction complete: ${event.result.tokensBefore} tokens compacted`);
 			} else if (event.aborted) {

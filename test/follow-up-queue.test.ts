@@ -87,3 +87,10 @@ describe("FollowUpQueue", () => {
 		]);
 	});
 });
+
+it("keeps a common scheduled job but does not misattribute mixed work", () => {
+ const event = { ...slackEvent("100", "job"), scheduledJobId: "sync.json" };
+ expect(createQueuedFollowUpTrigger([event, event]).scheduledJobId).toBe("sync.json");
+ expect(createQueuedFollowUpTrigger([event, { ...event, scheduledJobId: "digest.json" }]).scheduledJobId).toBeUndefined();
+ expect(createQueuedFollowUpTrigger([event, slackEvent("101", "user")]).scheduledJobId).toBeUndefined();
+});

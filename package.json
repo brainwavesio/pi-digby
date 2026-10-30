@@ -15,10 +15,10 @@
 		"prepare": "husky"
 	},
 	"dependencies": {
-		"@earendil-works/pi-agent-core": "^0.82.1",
-		"@earendil-works/pi-ai": "^0.82.1",
-		"@earendil-works/pi-coding-agent": "^0.82.1",
-		"@earendil-works/pi-tui": "^0.82.1",
+		"@earendil-works/pi-agent-core": "1.4.0",
+		"@earendil-works/pi-ai": "1.4.0",
+		"@earendil-works/pi-coding-agent": "1.4.0",
+		"@earendil-works/pi-tui": "1.4.0",
 		"@linear/sdk": "^88.3.0",
 		"@shikijs/markdown-it": "^4.3.1",
 		"@silvia-odwyer/photon-node": "^0.3.4",
